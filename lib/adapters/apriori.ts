@@ -56,13 +56,13 @@ export async function fetchAprioriPools(): Promise<LiquidStakingPool[]> {
       { headers: { Accept: 'application/json' }, next: { revalidate: 0 } },
     ).then(r => r.json()).catch(() => null),
     // Read previous exchange_rate + updated_at for APY computation
-    supabaseAdmin
-      .from('pools')
-      .select('exchange_rate, updated_at')
-      .eq('id', POOL_ID)
-      .maybeSingle()
-      .then(({ data }) => data)
-      .catch(() => null),
+    Promise.resolve(
+      supabaseAdmin
+        .from('pools')
+        .select('exchange_rate, updated_at')
+        .eq('id', POOL_ID)
+        .maybeSingle()
+    ).then(({ data }) => data).catch(() => null),
   ])
 
   // MON price from V4 MON/USDC pool (token0=MON 18dec, token1=USDC 6dec)
