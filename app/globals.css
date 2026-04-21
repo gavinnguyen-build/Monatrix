@@ -1,8 +1,27 @@
 @import "tailwindcss";
 
+/* ─── Brand palette ─────────────────────────────────────────────────────────── */
 :root {
-  --background: #ffffff;
-  --foreground: #171717;
+  --brand:       #CC3BFF;
+  --brand-light: #BFA2FF;
+  --brand-dark:  #7C3AED;
+
+  /* Dark theme (default) — subtle purple tint */
+  --background:  #0a0914;
+  --foreground:  #e2e8f0;
+  --card:        #100c1e;
+  --card-hover:  #141030;
+  --border:      #1e1835;
+  --border-hover:#2e2850;
+}
+
+html.light {
+  --background:  #f8fafc;
+  --foreground:  #0f172a;
+  --card:        #ffffff;
+  --card-hover:  #f0f4ff;
+  --border:      #e2e8f0;
+  --border-hover:#cbd5e1;
 }
 
 @theme inline {
@@ -12,15 +31,25 @@
   --font-mono: var(--font-geist-mono);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background: #0a0a0a;
-    --foreground: #ededed;
-  }
-}
-
 body {
   background: var(--background);
   color: var(--foreground);
-  font-family: Arial, Helvetica, sans-serif;
+  font-family: var(--font-geist-sans), Arial, sans-serif;
+}
+
+/* ─── Light mode text fixes ────────────────────────────────────────────────── */
+
+/* white text → near-black (exclude colored avatar circles with rounded-full) */
+html.light .text-white:not(.rounded-full) { color: #0f172a !important; }
+
+/* light slate grays → readable dark grays */
+html.light .text-slate-200               { color: #334155 !important; }
+html.light .text-slate-300               { color: #475569 !important; }
+html.light .hover\:text-slate-200:hover  { color: #1e293b !important; }
+html.light .hover\:text-slate-300:hover  { color: #334155 !important; }
+
+/* footer */
+html.light footer {
+  border-color: var(--border);
+  color: #94a3b8;
 }
