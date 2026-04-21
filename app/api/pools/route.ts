@@ -17,5 +17,10 @@ export async function GET() {
   }
 
   const pools = (data as PoolRow[]).map(fromRow)
-  return NextResponse.json(pools)
+  return NextResponse.json(pools, {
+    headers: {
+      // Cache at CDN for 5 min — reduces DB hits without stale data risk
+      'Cache-Control': 's-maxage=300, stale-while-revalidate=60',
+    },
+  })
 }
