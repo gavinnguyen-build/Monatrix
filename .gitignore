@@ -39,3 +39,8 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# local-only docs (không upload lên GitHub)
+CLAUDE.md
+AGENTS.md
+README.md
