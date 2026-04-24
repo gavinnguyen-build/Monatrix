@@ -1,0 +1,16 @@
+<svg viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="ebtc-grad" x1="100%" y1="0%" x2="0%" y2="100%">
+      <stop offset="0%" stop-color="#0d0d4d"/>
+      <stop offset="25%" stop-color="#19134f"/>
+      <stop offset="50%" stop-color="#553356"/>
+      <stop offset="75%" stop-color="#954e60"/>
+      <stop offset="100%" stop-color="#be6263"/>
+    </linearGradient>
+    <clipPath id="ebtc-clip">
+      <circle cx="64" cy="64" r="64"/>
+    </clipPath>
+  </defs>
+  <circle cx="64" cy="64" r="64" fill="url(#ebtc-grad)" clip-path="url(#ebtc-clip)"/>
+  <text x="64" y="72" text-anchor="middle" fill="white" font-family="'Montserrat', 'Arial Black', sans-serif" font-weight="800" font-size="32" font-style="italic" letter-spacing="-0.5">eBTC</text>
+</svg>

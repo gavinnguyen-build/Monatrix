@@ -4,7 +4,7 @@ import { useState, Fragment, useRef, useEffect } from 'react'
 import type { Pool, LPPool, LendingPool, BorrowingPool, StakingPool, LiquidStakingPool } from '@/types'
 import { ILWarning } from './ILWarning'
 import { DepositModal } from './DepositModal'
-import { CURVANCE_MARKETS } from '@/lib/contracts'
+import { CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS } from '@/lib/contracts'
 
 // ─── Protocol colours ───────────────────────────────────────────────────────
 const PROTOCOL_COLORS: Record<string, string> = {
@@ -61,6 +61,14 @@ const TOKEN_LOGOS: Record<string, string> = {
   LV:       '/logos/tokens/LV.png',
   LVMON:    '/logos/tokens/LVMON.png',
   USD1:     '/logos/tokens/USD1.png',
+  ezETH:    '/logos/tokens/ezeth.svg',
+  muBOND:   '/logos/tokens/mubond.svg',
+  sAUSD:    '/logos/tokens/sausd.svg',
+  syzUSD:   '/logos/tokens/syzusd.svg',
+  vUSD:     '/logos/tokens/vusd.svg',
+  wsrUSD:   '/logos/tokens/wsrusd.svg',
+  YZM:      '/logos/tokens/yzm.svg',
+  eBTC:     '/logos/tokens/ebtc.svg',
 }
 
 // Receipt token for each LST protocol (shown instead of deposited MON)
@@ -407,15 +415,23 @@ export function PoolTable({ pools }: Props) {
               const lpPool = pool as LPPool
               const other  = pool as LendingPool
 
+              const curvBorrow = pool.protocol === 'Curvance' && pool.type === 'borrowing'
+                ? CURVANCE_BORROW_MARKETS[pool.id]
+                : null
+
               const name = isLP
                 ? `${lpPool.token0}/${lpPool.token1}`
                 : pool.protocol === 'Curvance' && pool.type === 'lending'
                   ? (CURVANCE_MARKETS[pool.id]?.colSym ?? other.asset.split('/')[0])
-                  : other.asset
+                  : curvBorrow
+                    ? `${curvBorrow.colSym}/${curvBorrow.loanSym}`
+                    : other.asset
 
-              // Token avatar: pair for LP, single receipt/asset for others
-              const avatarProps: Parameters<typeof TokenPairAvatar>[0] = isLP
-                ? { mode: 'pair', token0: lpPool.token0, token1: lpPool.token1 }
+              // Token avatar: pair for LP + Curvance borrow, single for others
+              const avatarProps: Parameters<typeof TokenPairAvatar>[0] = isLP || curvBorrow
+                ? { mode: 'pair',
+                    token0: curvBorrow ? curvBorrow.colSym : lpPool.token0,
+                    token1: curvBorrow ? curvBorrow.loanSym : lpPool.token1 }
                 : { mode: 'single', token:
                     pool.type === 'liquid_staking' ? (LST_RECEIPT[pool.protocol] ?? other.asset)
                     : pool.protocol === 'Curvance' && pool.type === 'lending'
@@ -431,7 +447,7 @@ export function PoolTable({ pools }: Props) {
                   : null)
 
               const apr = getApr(pool)
-              const isFull = pool.status === 'full'
+              const isFull = pool.status === 'full' && pool.protocol !== 'Curvance'
 
               return (
                 <Fragment key={pool.id}>
@@ -506,18 +522,12 @@ export function PoolTable({ pools }: Props) {
 
                     {/* Action button */}
                     <td className="px-4 py-3.5 text-right">
-                      {isFull ? (
-                        <span className="px-3.5 py-1.5 text-xs font-semibold text-slate-600 opacity-0 group-hover:opacity-100">
-                          At capacity
-                        </span>
-                      ) : (
-                        <button
-                          onClick={e => { e.stopPropagation(); setSelectedPool(pool) }}
-                          className="px-3.5 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-slate-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--border)] hover:border-slate-500 transition-all"
-                        >
-                          {pool.type === 'borrowing' ? 'Borrow' : 'Deposit'}
-                        </button>
-                      )}
+                      <button
+                        onClick={e => { e.stopPropagation(); setSelectedPool(pool) }}
+                        className="px-3.5 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-slate-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--border)] hover:border-slate-500 transition-all"
+                      >
+                        {pool.type === 'borrowing' ? 'Borrow' : 'Deposit'}
+                      </button>
                     </td>
                   </tr>
 

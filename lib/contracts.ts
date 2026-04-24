@@ -250,6 +250,49 @@ export const CURVANCE_MARKETS: Record<string, {
   'curvance-weth-usdc':     { colCToken: '0x21aDBb60a5fB909e7F1fB48aACC4569615CD97b5', colAsset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', colDec: 6,  colSym: 'USDC'     },
 }
 
+// ── Curvance Borrow Markets ────────────────────────────────────────────────────
+// For each borrow pool: which collateral to deposit, which loan cToken to call borrow() on.
+// Addresses from Reader.getDynamicMarketData() on-chain fetch (Apr 2026).
+// borrow(uint256 borrowAmount) on loanCToken — Compound V2 style, no approve needed.
+export const CURVANCE_BORROW_ABI = [
+  {
+    name: 'borrow',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs:  [{ name: 'borrowAmount', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+] as const
+
+export const CURVANCE_BORROW_MARKETS: Record<string, {
+  colCToken:  `0x${string}`   // cToken to deposit collateral into
+  colAsset:   `0x${string}`   // underlying ERC20 to approve
+  colDec:     number
+  colSym:     string
+  loanCToken: `0x${string}`   // cToken to call borrow() on
+  loanDec:    number
+  loanSym:    string
+}> = {
+  'curvance-mubond-ausd-borrow':   { colCToken: '0x92EE4b4d33Dc61bd93a88601F29131B08aCedBF1', colAsset: '0x336D414754967C6682B5A665C7DAF6F1409E63e8', colDec: 18, colSym: 'muBOND',   loanCToken: '0x2B4e0232F46E6DB4af35474c140B968EeFCB09Ec', loanDec: 6,  loanSym: 'AUSD' },
+  'curvance-loaznd-ausd-borrow':   { colCToken: '0xf7a6AB4aF86966C141D3C5633DF658E5CDb0a735', colAsset: '0x9c82eB49B51F7Dc61e22Ff347931CA32aDc6cd90', colDec: 18, colSym: 'loAZND',   loanCToken: '0xDaDbB2D8f9802DC458F5D7F133D053087Ba8983d', loanDec: 6,  loanSym: 'AUSD' },
+  'curvance-ezeth-weth-borrow':    { colCToken: '0x20f1A13BfbF85a22Aa59D189861790981372220b', colAsset: '0x2416092f143378750bb29b79eD961ab195CcEea5', colDec: 18, colSym: 'ezETH',    loanCToken: '0xa206D51C02c0202a2Eed8E6A757b49Ab13930227', loanDec: 18, loanSym: 'WETH' },
+  'curvance-shmon-wmon-borrow':    { colCToken: '0x926C101Cf0a3dE8725Eb24a93E980f9FE34d6230', colAsset: '0x1B68626dCa36c7fE922fD2d55E4f631d962dE19c', colDec: 18, colSym: 'shMON',    loanCToken: '0x0fcEd51b526BfA5619F83d97b54a57e3327eB183', loanDec: 18, loanSym: 'WMON' },
+  'curvance-aprmon-wmon-borrow':   { colCToken: '0xD9E2025b907E95EcC963A5018f56B87575B4aB26', colAsset: '0x0c65A0BC65a5D819235B71F554D210D3F80E0852', colDec: 18, colSym: 'aprMON',   loanCToken: '0xF32B334042DC1EB9732454cc9bc1a06205d184f2', loanDec: 18, loanSym: 'WMON' },
+  'curvance-smon-wmon-borrow':     { colCToken: '0x494876051B0E85dCe5ecd5822B1aD39b9660c928', colAsset: '0xA3227C5969757783154C60bF0bC1944180ed81B9', colDec: 18, colSym: 'sMON',     loanCToken: '0xebE45A6ceA7760a71D8e0fa5a0AE80a75320D708', loanDec: 18, loanSym: 'WMON' },
+  'curvance-sausd-ausd-borrow':    { colCToken: '0x84C5aF20b58818631164Bb7d798E457fcFACD9Ac', colAsset: '0xD793c04B87386A6bb84ee61D98e0065FdE7fdA5E', colDec: 6,  colSym: 'sAUSD',    loanCToken: '0xfD493ce1A0ae986e09d17004B7E748817a47d73c', loanDec: 6,  loanSym: 'AUSD' },
+  'curvance-earnausd-ausd-borrow': { colCToken: '0x852FF1EC21D63b405eC431e04AE3AC760e29263D', colAsset: '0x103222f020e98Bba0AD9809A011FDF8e6F067496', colDec: 6,  colSym: 'earnAUSD', loanCToken: '0xAd4AA2a713fB86FBb6b60dE2aF9E32a11DB6Abf2', loanDec: 6,  loanSym: 'AUSD' },
+  'curvance-wmon-ausd-borrow':     { colCToken: '0xE01d426B589c7834a5F6B20D7e992A705d3c22ED', colAsset: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', colDec: 18, colSym: 'WMON',     loanCToken: '0x6E182EB501800C555bd5E662E6D350D627F504D8', loanDec: 6,  loanSym: 'AUSD' },
+  'curvance-wmon-usdc-borrow':     { colCToken: '0x1e240E30E51491546deC3aF16B0b4EAC8Dd110D4', colAsset: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', colDec: 18, colSym: 'WMON',     loanCToken: '0x8EE9FC28B8Da872c38A496e9dDB9700bb7261774', loanDec: 6,  loanSym: 'USDC' },
+  'curvance-wbtc-usdc-borrow':     { colCToken: '0x3D2Ff9F862D89Ba526a0fC166bD56ABe04EF28d5', colAsset: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', colDec: 8,  colSym: 'WBTC',     loanCToken: '0x7C9d4f1695C6282Da5e5509Aa51fC9fb417C6f1d', loanDec: 6,  loanSym: 'USDC' },
+  'curvance-weth-usdc-borrow':     { colCToken: '0x8Af00fbbb2601A8F7636EabbF6243B30BEA47D50', colAsset: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242', colDec: 18, colSym: 'WETH',     loanCToken: '0x21aDBb60a5fB909e7F1fB48aACC4569615CD97b5', loanDec: 6,  loanSym: 'USDC' },
+  'curvance-gmon-wmon-borrow':     { colCToken: '0x5ca6966543c0786f547446234492D2F11C82f11f', colAsset: '0x8498312A6B3CbD158bf0c93AbdCF29E6e4F55081', colDec: 18, colSym: 'gMON',     loanCToken: '0xf473568b26B8C5aadCa9fbC0eA17E1728d5ec925', loanDec: 18, loanSym: 'WMON' },
+  'curvance-syzusd-ausd-borrow':   { colCToken: '0x7EdA3cb060Ff7B650eB227971dbfEBD3513b11D5', colAsset: '0x484be0540aD49f351eaa04eeB35dF0f937D4E73f', colDec: 18, colSym: 'syzUSD',   loanCToken: '0x8E94704607E857eB3E10Bd21D90bf8C1Ecba0452', loanDec: 6,  loanSym: 'AUSD' },
+  'curvance-wsrusd-ausd-borrow':   { colCToken: '0x251B67Ae7e90fDc6a7B080Ee601913A8B2746A28', colAsset: '0x4809010926aec940b550D34a46A52739f996D75D', colDec: 18, colSym: 'wsrUSD',   loanCToken: '0x88e0994E8130EF72bf614CBBcF722839B167c8d1', loanDec: 6,  loanSym: 'AUSD' },
+  'curvance-yzm-ausd-borrow':      { colCToken: '0x8626B8f4F64CAeee9549Af8ebbFA591A7425e5ba', colAsset: '0x3a2c4aAae6776dC1c31316De559598f2f952E2cB', colDec: 6,  colSym: 'YZM',      loanCToken: '0xcdc9D2c4EaD8f2A9FD3D6F5a00bA4e6001ab7898', loanDec: 6,  loanSym: 'AUSD' },
+  'curvance-vusd-ausd-borrow':     { colCToken: '0x42369AFe4bA4225b800b8024Acc5F14f42A3836C', colAsset: '0x8d3F9f9Eb2f5E8B48EFBB4074440D1E2A34Bc365', colDec: 6,  colSym: 'vUSD',     loanCToken: '0x4806902Ec0320e5334c2B2679FFB58C830348F1c', loanDec: 6,  loanSym: 'AUSD' },
+  'curvance-ebtc-wbtc-borrow':     { colCToken: '0x2840772E14fFbe337aB966727B7D1Dd09BDc76E4', colAsset: '0xd691b0aFed67F96CEC28Ab6308Cbe5b2C103b7e9', colDec: 10, colSym: 'eBTC',     loanCToken: '0xdB3e888c3b50771821226d30Ab6eC14eB5ba85bA', loanDec: 8,  loanSym: 'WBTC' },
+}
+
 // ── Kuru Managed Vaults ───────────────────────────────────────────────────────
 // deposit(uint256 baseAmount, uint256 quoteAmount) payable
 //   baseAmount = MON (send as msg.value — native, no approve needed)
