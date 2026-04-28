@@ -146,7 +146,13 @@ function ProtocolSection({
 
       {/* Table */}
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[540px]">
+        <table className="w-full min-w-[540px] table-fixed">
+          <colgroup>
+            <col style={{ width: '30%' }} />
+            <col style={{ width: '30%' }} />
+            <col style={{ width: '24%' }} />
+            <col style={{ width: '16%' }} />
+          </colgroup>
           <thead>
             <tr className="border-b border-white/5">
               <th className="text-left text-[10px] text-slate-500 uppercase tracking-wider px-4 py-2 font-medium">Pool</th>
