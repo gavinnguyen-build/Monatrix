@@ -70,8 +70,13 @@ const V4_POOL_POS_ABI = parseAbi([
   'function getPoolAndPositionInfo(uint256 tokenId) view returns ((address, address, uint24, int24, address), bytes32)',
 ])
 const V4_LIQ_ABI      = parseAbi(['function getPositionLiquidity(uint256 tokenId) view returns (uint128)'])
-// V4 StateView slot0 — same minimal approach as V3 slot0
-const V4_SLOT0_ABI    = parseAbi(['function getSlot0(bytes32 poolId) view returns (uint160, int24)'])
+// V4 StateView — slot0, fee growth globals, tick info, position info
+const V4_SLOT0_ABI      = parseAbi(['function getSlot0(bytes32 poolId) view returns (uint160, int24)'])
+const V4_FEE_GLOBAL_ABI = parseAbi(['function getFeeGrowthGlobals(bytes32 poolId) view returns (uint256, uint256)'])
+// getTickInfo on Monad StateView returns 4 values (no bool initialized)
+const V4_TICK_INFO_ABI  = parseAbi(['function getTickInfo(bytes32 poolId, int24 tick) view returns (uint128, int128, uint256, uint256)'])
+// getPositionInfo(poolId, owner=PM, tickLower, tickUpper, salt=bytes32(tokenId)) → (liquidity, fg0Last, fg1Last)
+const V4_POSITION_ABI   = parseAbi(['function getPositionInfo(bytes32 poolId, address owner, int24 tickLower, int24 tickUpper, bytes32 salt) view returns (uint128, uint256, uint256)'])
 
 const NATIVE_TOKEN = '0x0000000000000000000000000000000000000000' as Address
 const WMON_ADDR    = '0x3bd359c1119da7da1d913d1c4d2b7c461115433a'
@@ -962,27 +967,79 @@ export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
       })
 
       if (activeV4.length > 0) {
-        // Fetch slot0 for each unique pool from StateView
         const poolIdList = Array.from(uniquePoolIds)
-        const v4Slot0Res = await client.multicall({
-          contracts: poolIdList.map(poolId => ({
-            address: UNISWAP_V4_STATE_VIEW.address as Address,
-            abi: V4_SLOT0_ABI,
-            functionName: 'getSlot0' as const,
-            args: [poolId] as const,
-          })),
-          allowFailure: true,
-        })
+        const PM_ADDR    = UNISWAP_V4_POSITION_MANAGER.address as Address
 
+        // Build unique (poolId, tick) pairs for getTickInfo calls
+        const v4TickPairs: { poolId: `0x${string}`; tick: number }[] = []
+        const v4SeenTicks = new Set<string>()
+        for (const pos of activeV4) {
+          for (const tick of [pos.tickLower, pos.tickUpper]) {
+            const tk = `${pos.poolId}:${tick}`
+            if (!v4SeenTicks.has(tk)) { v4SeenTicks.add(tk); v4TickPairs.push({ poolId: pos.poolId, tick }) }
+          }
+        }
+        const nPools = poolIdList.length
+        const nTicks = v4TickPairs.length
+
+        // Single multicall: slot0 + feeGrowthGlobals + tickInfo + position (per NFT)
+        // Layout: [slot0 × nPools] [fgGlobal × nPools] [tickInfo × nTicks] [position × nPositions]
+        const v4AllCalls = [
+          ...poolIdList.map(id => ({
+            address: UNISWAP_V4_STATE_VIEW.address as Address,
+            abi: V4_SLOT0_ABI, functionName: 'getSlot0' as const, args: [id] as const,
+          })),
+          ...poolIdList.map(id => ({
+            address: UNISWAP_V4_STATE_VIEW.address as Address,
+            abi: V4_FEE_GLOBAL_ABI, functionName: 'getFeeGrowthGlobals' as const, args: [id] as const,
+          })),
+          ...v4TickPairs.map(({ poolId, tick }) => ({
+            address: UNISWAP_V4_STATE_VIEW.address as Address,
+            abi: V4_TICK_INFO_ABI, functionName: 'getTickInfo' as const, args: [poolId, tick] as const,
+          })),
+          ...activeV4.map(pos => ({
+            address: UNISWAP_V4_STATE_VIEW.address as Address,
+            abi: V4_POSITION_ABI, functionName: 'getPositionInfo' as const,
+            // owner = PositionManager (holds all V4 NFT positions), salt = bytes32(tokenId)
+            args: [
+              pos.poolId, PM_ADDR, pos.tickLower, pos.tickUpper,
+              `0x${pos.tokenId.toString(16).padStart(64, '0')}` as `0x${string}`,
+            ] as const,
+          })),
+        ]
+        const v4AllRes = await client.multicall({ contracts: v4AllCalls, allowFailure: true })
+
+        // Parse slot0
         const v4Slot0Map = new Map<string, { sqrtPriceX96: bigint; tick: number }>()
         poolIdList.forEach((poolId, i) => {
-          const r = v4Slot0Res[i]
+          const r = v4AllRes[i]
           if (r.status !== 'success') return
           const [sqrtPriceX96, tick] = r.result as readonly [bigint, number]
           v4Slot0Map.set(poolId, { sqrtPriceX96, tick: Number(tick) })
         })
 
-        for (const pos of activeV4) {
+        // Parse feeGrowthGlobals
+        const v4FgMap = new Map<string, { g0: bigint; g1: bigint }>()
+        poolIdList.forEach((poolId, i) => {
+          const r = v4AllRes[nPools + i]
+          if (r.status !== 'success') return
+          const [g0, g1] = r.result as readonly [bigint, bigint]
+          v4FgMap.set(poolId, { g0, g1 })
+        })
+
+        // Parse tickInfo (feeGrowthOutside at indices [2][3]; no bool on Monad StateView)
+        const v4TickMap = new Map<string, { fo0: bigint; fo1: bigint }>()
+        v4TickPairs.forEach(({ poolId, tick }, i) => {
+          const r = v4AllRes[2 * nPools + i]
+          if (r.status !== 'success') return
+          const arr = r.result as readonly [bigint, bigint, bigint, bigint]
+          v4TickMap.set(`${poolId}:${tick}`, { fo0: arr[2], fo1: arr[3] })
+        })
+
+        // Process each V4 position
+        const Q128 = 2n ** 128n
+        for (let i = 0; i < activeV4.length; i++) {
+          const pos   = activeV4[i]
           const slot0 = v4Slot0Map.get(pos.poolId)
           if (!slot0) continue
 
@@ -1000,11 +1057,29 @@ export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
           const usd  = amt0 * t0Price + amt1 * t1Price
           if (usd < 0.01) continue
 
+          // Uncollected fees — same feeGrowthInside formula as V3
+          // V4 has no separate tokensOwed; all fees are tracked via fgInsideLast checkpoint
+          let r0amt = 0, r1amt = 0, rewardUsd = 0
+          const fg    = v4FgMap.get(pos.poolId)
+          const lower = v4TickMap.get(`${pos.poolId}:${pos.tickLower}`)
+          const upper = v4TickMap.get(`${pos.poolId}:${pos.tickUpper}`)
+          const posR  = v4AllRes[2 * nPools + nTicks + i]
+          if (fg && lower && upper && posR.status === 'success') {
+            const [, fg0Last, fg1Last] = posR.result as readonly [bigint, bigint, bigint]
+            const [fg0Inside, fg1Inside] = v3FeeGrowthInside(
+              slot0.tick, pos.tickLower, pos.tickUpper,
+              fg.g0, fg.g1,
+              lower.fo0, lower.fo1,
+              upper.fo0, upper.fo1,
+            )
+            r0amt = Number(u256Sub(fg0Inside, fg0Last) * pos.liq / Q128) / 10 ** t0Dec
+            r1amt = Number(u256Sub(fg1Inside, fg1Last) * pos.liq / Q128) / 10 ** t1Dec
+            rewardUsd = r0amt * t0Price + r1amt * t1Price
+          }
+
           const c0Sym = ADDR_TO_SYM[c0Lower] ?? (c0Lower === NATIVE_ADDR ? 'MON' : pos.c0.slice(0, 6))
           const c1Sym = ADDR_TO_SYM[c1Lower] ?? pos.c1.slice(0, 6)
           const label = `${c0Sym}/${c1Sym}`
-
-          // Link to monatrix pool page if tracked, else fallback
           const monatrixKey = V4_BYTES32_TO_KEY[pos.poolId.toLowerCase()] ?? `uniswap-v4-${c0Sym.toLowerCase()}-${c1Sym.toLowerCase()}`
 
           positions.push({
@@ -1020,6 +1095,11 @@ export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
               { sym: c0Sym, amount: amt0, usd: amt0 * t0Price },
               { sym: c1Sym, amount: amt1, usd: amt1 * t1Price },
             ],
+            rewards: [
+              { sym: c0Sym, amount: r0amt, usd: r0amt * t0Price },
+              { sym: c1Sym, amount: r1amt, usd: r1amt * t1Price },
+            ],
+            rewardUsd,
           })
         }
       }
