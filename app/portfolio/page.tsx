@@ -5,6 +5,7 @@ import { useAccount, useConnect, useDisconnect } from 'wagmi'
 import { injected } from 'wagmi/connectors'
 import { useRouter } from 'next/navigation'
 import { fetchPortfolio, type Position, type TokenAmount } from '@/lib/portfolio'
+import { saveV4TokenId, loadV4TokenIds } from '@/lib/v4positions'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function fmtUsd(n: number) {
@@ -230,6 +231,89 @@ function ProtocolSection({
   )
 }
 
+// ─── Track V4 position panel ─────────────────────────────────────────────────
+// V4 tokenIds are stored in localStorage per domain. Use this to import
+// positions created on a different domain (e.g. localhost → Vercel).
+function TrackV4Panel({ address, onTracked }: { address: string; onTracked: () => void }) {
+  const [open, setOpen]     = useState(false)
+  const [input, setInput]   = useState('')
+  const [status, setStatus] = useState<'idle' | 'saving' | 'ok' | 'err'>('idle')
+  const [errMsg, setErrMsg] = useState('')
+  const saved = loadV4TokenIds(address)
+
+  function handleAdd() {
+    const raw = input.trim()
+    if (!raw || isNaN(Number(raw))) { setErrMsg('Nhập số tokenId hợp lệ'); setStatus('err'); return }
+    setStatus('saving')
+    setErrMsg('')
+    try {
+      saveV4TokenId(address, BigInt(raw))
+      setInput('')
+      setStatus('ok')
+      setTimeout(() => setStatus('idle'), 2000)
+      onTracked()
+    } catch {
+      setErrMsg('Lưu thất bại'); setStatus('err')
+    }
+  }
+
+  return (
+    <div className="mt-4 rounded-xl border border-white/5 bg-white/[0.02]">
+      <button
+        onClick={() => setOpen(o => !o)}
+        className="w-full flex items-center justify-between px-4 py-3 text-xs text-slate-400 hover:text-slate-200 transition-colors"
+      >
+        <span className="flex items-center gap-2">
+          <span className="text-fuchsia-400">⬡</span>
+          Track Uniswap V4 position theo tokenId
+        </span>
+        <span className="text-slate-600">{open ? '▲' : '▼'}</span>
+      </button>
+
+      {open && (
+        <div className="px-4 pb-4 space-y-3 border-t border-white/5 pt-3">
+          <p className="text-[11px] text-slate-500">
+            V4 positions được lưu theo domain. Nếu bạn deposit qua localhost, nhập tokenId để track trên domain này.
+          </p>
+
+          {/* Existing tracked IDs */}
+          {saved.length > 0 && (
+            <div className="flex flex-wrap gap-1.5">
+              {saved.map(id => (
+                <span key={id} className="text-[10px] px-2 py-0.5 rounded-full bg-fuchsia-500/10 text-fuchsia-400 border border-fuchsia-500/20 font-mono">
+                  #{id}
+                </span>
+              ))}
+            </div>
+          )}
+
+          {/* Input */}
+          <div className="flex gap-2">
+            <input
+              type="number"
+              min="0"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleAdd()}
+              placeholder="Token ID (vd: 32485)"
+              className="flex-1 text-xs bg-white/5 border border-white/10 rounded-lg px-3 py-2 text-white placeholder:text-slate-600 focus:outline-none focus:border-fuchsia-500/50"
+            />
+            <button
+              onClick={handleAdd}
+              disabled={status === 'saving'}
+              className="px-4 py-2 text-xs font-semibold bg-fuchsia-500/20 text-fuchsia-300 border border-fuchsia-500/30 rounded-lg hover:bg-fuchsia-500/30 transition-all disabled:opacity-50"
+            >
+              {status === 'saving' ? '...' : status === 'ok' ? '✓' : 'Track'}
+            </button>
+          </div>
+          {status === 'err' && <p className="text-[11px] text-red-400">{errMsg}</p>}
+          {status === 'ok'  && <p className="text-[11px] text-emerald-400">Đã lưu! Bấm Refresh để load vị trí.</p>}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ─── Empty state ─────────────────────────────────────────────────────────────
 function EmptyState() {
   const router = useRouter()
@@ -413,6 +497,11 @@ export default function PortfolioPage() {
                 ))}
               </div>
             </>
+          )}
+
+          {/* V4 tokenId tracker — always visible when connected + loaded */}
+          {address && (
+            <TrackV4Panel address={address} onTracked={load} />
           )}
         </>
       )}
