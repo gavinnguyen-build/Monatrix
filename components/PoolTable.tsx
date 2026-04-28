@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, Fragment, useRef, useEffect } from 'react'
+import { useRouter } from 'next/navigation'
 import type { Pool, LPPool, LendingPool, BorrowingPool, StakingPool, LiquidStakingPool } from '@/types'
 import { ILWarning } from './ILWarning'
-import { DepositModal } from './DepositModal'
 import { CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS } from '@/lib/contracts'
 
 // ─── Protocol colours ───────────────────────────────────────────────────────
@@ -268,14 +268,14 @@ type TypeFilter = 'all' | 'lp' | 'lending' | 'borrowing' | 'staking' | 'liquid_s
 interface Props { pools: Pool[] }
 
 export function PoolTable({ pools }: Props) {
-  const [sortKey, setSortKey]           = useState<SortKey>('apr')
-  const [sortDir, setSortDir]           = useState<'asc' | 'desc'>('desc')
-  const [typeFilter, setTypeFilter]     = useState<TypeFilter>('all')
-  const [protocolFilter, setProtocol]   = useState('all')
-  const [search, setSearch]             = useState('')
-  const [showBytes, setShowBytes]       = useState(true)
-  const [expandedIL, setExpandedIL]     = useState<string | null>(null)
-  const [selectedPool, setSelectedPool] = useState<Pool | null>(null)
+  const router = useRouter()
+  const [sortKey, setSortKey]         = useState<SortKey>('apr')
+  const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('desc')
+  const [typeFilter, setTypeFilter]   = useState<TypeFilter>('all')
+  const [protocolFilter, setProtocol] = useState('all')
+  const [search, setSearch]           = useState('')
+  const [showBytes, setShowBytes]     = useState(true)
+  const [expandedIL, setExpandedIL]   = useState<string | null>(null)
 
   const protocols = ['all', ...Array.from(new Set(pools.map(p => p.protocol))).sort()]
 
@@ -388,7 +388,7 @@ export function PoolTable({ pools }: Props) {
                 <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Pool</span>
               </th>
               <th className="px-4 py-3 text-left">
-                <SortBtn k="apr" label="APY" />
+                <SortBtn k="apr" label="APY/APR" />
               </th>
               <th className="px-4 py-3 text-left">
                 <SortBtn k="tvl" label="Deposits" />
@@ -453,7 +453,7 @@ export function PoolTable({ pools }: Props) {
                 <Fragment key={pool.id}>
                   <tr
                     className={`transition-colors cursor-pointer group ${isFull ? 'opacity-50' : 'hover:bg-[var(--card-hover)]'}`}
-                    onClick={() => isLP && setExpandedIL(expandedIL === pool.id ? null : pool.id)}
+                    onClick={() => isLP ? setExpandedIL(expandedIL === pool.id ? null : pool.id) : router.push('/pools/' + pool.id)}
                   >
                     {/* Pool name */}
                     <td className="px-4 py-3.5">
@@ -523,7 +523,7 @@ export function PoolTable({ pools }: Props) {
                     {/* Action button */}
                     <td className="px-4 py-3.5 text-right">
                       <button
-                        onClick={e => { e.stopPropagation(); setSelectedPool(pool) }}
+                        onClick={e => { e.stopPropagation(); router.push('/pools/' + pool.id) }}
                         className="px-3.5 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-slate-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--border)] hover:border-slate-500 transition-all"
                       >
                         {pool.type === 'borrowing' ? 'Borrow' : 'Deposit'}
@@ -552,9 +552,6 @@ export function PoolTable({ pools }: Props) {
         </table>
       </div>
 
-      {selectedPool && (
-        <DepositModal pool={selectedPool} onClose={() => setSelectedPool(null)} />
-      )}
     </div>
   )
 }

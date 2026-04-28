@@ -1,15 +1,18 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useAccount, useConnect, useDisconnect, useBalance, useWriteContract, useWaitForTransactionReceipt, useReadContract, useSendTransaction } from 'wagmi'
+import { useAccount, useConnect, useDisconnect, useBalance, useWriteContract, useWaitForTransactionReceipt, useReadContract, useSendTransaction, usePublicClient } from 'wagmi'
 import { injected } from 'wagmi/connectors'
 import { parseEther, parseUnits, formatUnits, encodeFunctionData, encodeAbiParameters } from 'viem'
 import type { Pool, LendingPool, BorrowingPool, LiquidStakingPool, LPPool } from '@/types'
-import { APRIORI, FASTLANE, KINTSU, MAGMA, ERC20_ABI, ERC4626_ABI, MORPHO_VAULTS, NEVERLAND, NEVERLAND_ORACLE, NEVERLAND_RESERVES, NEVERLAND_BORROW_RESERVES, CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS, CURVANCE_BORROW_ABI, KURU_VAULTS, KURU_VAULT_ABI, KURU_MARGIN_ACCOUNT, TOKENS, CLOBER_POOLS, UNISWAP_V2_ROUTER, UNISWAP_V2_PAIR_ABI, UNISWAP_V2_POOLS, UNISWAP_V3_NPM, UNISWAP_V3_POOL_ABI, UNISWAP_V3_POOLS, UNISWAP_V4_POSITION_MANAGER, UNISWAP_V4_STATE_VIEW, UNISWAP_V4_POOLS, PERMIT2, PANCAKESWAP_V3_NPM, PANCAKESWAP_V3_POOL_ABI, PANCAKESWAP_V3_POOLS } from '@/lib/contracts'
+import { APRIORI, FASTLANE, KINTSU, MAGMA, ERC20_ABI, ERC4626_ABI, MORPHO_VAULTS, NEVERLAND, NEVERLAND_ORACLE, NEVERLAND_RESERVES, NEVERLAND_BORROW_RESERVES, CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS, CURVANCE_BORROW_ABI, KURU_VAULTS, KURU_VAULT_ABI, KURU_MARGIN_ACCOUNT, TOKENS, CLOBER_LV, CLOBER_POOLS, UNISWAP_V2_ROUTER, UNISWAP_V2_PAIR_ABI, UNISWAP_V2_POOLS, UNISWAP_V3_NPM, UNISWAP_V3_POOL_ABI, UNISWAP_V3_POOLS, UNISWAP_V4_POSITION_MANAGER, UNISWAP_V4_STATE_VIEW, UNISWAP_V4_POOLS, PERMIT2, PANCAKESWAP_V3_NPM, PANCAKESWAP_V3_POOL_ABI, PANCAKESWAP_V3_POOLS } from '@/lib/contracts'
 import { addLiquidity, CHAIN_IDS } from '@clober/v2-sdk'
+import { saveV4TokenId } from '@/lib/v4positions'
+
+const NEXT_ID_ABI = [{ name: 'nextTokenId', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] }] as const
 
 // ── Token name map ────────────────────────────────────────────────────────────
-const TOKEN_NAMES: Record<string, string> = {
+export const TOKEN_NAMES: Record<string, string> = {
   shmon: 'shMON', gmon: 'gMON', smon: 'sMON', aprmon: 'aprMON',
   wmon: 'WMON', wbtc: 'WBTC', weth: 'WETH', ausd: 'AUSD',
   usdc: 'USDC', usdt0: 'USDT0', mon: 'MON', earnausd: 'earnAUSD',
@@ -17,7 +20,7 @@ const TOKEN_NAMES: Record<string, string> = {
 const fmtToken = (s: string) => TOKEN_NAMES[s.toLowerCase()] ?? s.toUpperCase()
 
 // ── Protocol colors ───────────────────────────────────────────────────────────
-const PROTOCOL_BG: Record<string, string> = {
+export const PROTOCOL_BG: Record<string, string> = {
   Curvance: 'bg-purple-600', Morpho: 'bg-emerald-600', Neverland: 'bg-blue-600',
   Kuru: 'bg-amber-500', PancakeSwap: 'bg-pink-500', Clober: 'bg-red-500',
   Uniswap: 'bg-fuchsia-500', Fastlane: 'bg-violet-600', Kintsu: 'bg-teal-500',
@@ -25,12 +28,12 @@ const PROTOCOL_BG: Record<string, string> = {
 }
 
 // ── LST receipt tokens ────────────────────────────────────────────────────────
-const LST_RECEIPT: Record<string, string> = {
+export const LST_RECEIPT: Record<string, string> = {
   Magma: 'gMON', Fastlane: 'shMON', Kintsu: 'sMON', Apriori: 'aprMON',
 }
 
 // ── Amount input ──────────────────────────────────────────────────────────────
-function AmountInput({ label, token, value, onChange, max }: {
+export function AmountInput({ label, token, value, onChange, max }: {
   label: string; token: string; value: string
   onChange: (v: string) => void; max?: string
 }) {
@@ -50,9 +53,8 @@ function AmountInput({ label, token, value, onChange, max }: {
       </div>
       <div className="flex items-center bg-[#0a1220] border border-[#1a2535] rounded-xl focus-within:border-[#2a3a52] transition-colors overflow-hidden">
         <input
-          type="number"
-          min="0"
-          step="any"
+          type="text"
+          inputMode="decimal"
           placeholder="0.00"
           value={value}
           onChange={e => onChange(e.target.value)}
@@ -67,7 +69,7 @@ function AmountInput({ label, token, value, onChange, max }: {
 }
 
 // ── Step indicator ────────────────────────────────────────────────────────────
-function Steps({ steps, current }: { steps: string[]; current: number }) {
+export function Steps({ steps, current }: { steps: string[]; current: number }) {
   return (
     <div className="flex items-center">
       {steps.map((label, i) => {
@@ -97,7 +99,7 @@ function Steps({ steps, current }: { steps: string[]; current: number }) {
 }
 
 // ── Action button ─────────────────────────────────────────────────────────────
-function Btn({ label, onClick, disabled }: {
+export function Btn({ label, onClick, disabled }: {
   label: string; onClick?: () => void; disabled?: boolean
 }) {
   return (
@@ -117,7 +119,7 @@ function Btn({ label, onClick, disabled }: {
 }
 
 // ── LST Flow (1 step: deposit MON → receive receipt token) ────────────────────
-function LSTFlow({ pool, address }: { pool: LiquidStakingPool; address?: string }) {
+export function LSTFlow({ pool, address }: { pool: LiquidStakingPool; address?: string }) {
   const [amount, setAmount] = useState('')
   const { data: bal } = useBalance({ address: address as `0x${string}` | undefined })
   const receipt = LST_RECEIPT[pool.protocol] ?? pool.asset
@@ -933,7 +935,7 @@ function CurvanceBorrowFlow({ pool, address }: { pool: BorrowingPool; address?: 
 // deposit(baseAmount, quoteAmount) payable — native MON via msg.value, quote via transferFrom
 // Inputs are ratio-linked: changing one auto-fills the other based on vault's current composition.
 // Steps: 1. Approve quote (USDC/AUSD), 2. Deposit (send MON + quote together)
-function KuruVaultFlow({ pool, address }: { pool: LPPool; address?: string }) {
+export function KuruVaultFlow({ pool, address }: { pool: LPPool; address?: string }) {
   const [monAmt, setMonAmt] = useState('')
   const [quoteAmt, setQuoteAmt] = useState('')
   const [lastEdited, setLastEdited] = useState<'mon' | 'quote'>('mon')
@@ -1156,101 +1158,95 @@ function KuruVaultFlow({ pool, address }: { pool: LPPool; address?: string }) {
 }
 
 // ── Clober LP flow (MON → Clober V2 LP via SDK zap-in, 1 tx) ─────────────────
-// Uses @clober/v2-sdk addLiquidity + Clober Quote API.
-// Pool currencyA=USDC, currencyB=MON → pass token0=USDC, token1=MON so that
-// value = amountBOrigin (MON wei) is correctly set in the built transaction.
-function CloberFlow({ pool, address }: { pool: LPPool; address?: string }) {
+// Dual-token flow (no external quote API needed).
+// Pool currencyA=USDC, currencyB=MON → user enters MON, USDC computed from pool ratio.
+// Uses disableSwap=true so the SDK never calls the Clober Quote API (which fails for native MON).
+// SDK sets value = amountBOrigin (MON wei) automatically when token1 = zeroAddress.
+export function CloberFlow({ pool, address }: { pool: LPPool; address?: string }) {
+  // Clober Minter contract — must approve USDC to this address
+  const MINTER = '0xb1251BF43Bb7De76DE7e6CE7B64aF843dfc9d242' as `0x${string}`
+
   const [monAmt, setMonAmt] = useState('')
-  const [slippage, setSlippage] = useState<0.5 | 1 | 50 | 'custom'>(1)
-  const [customSlippage, setCustomSlippage] = useState('')
   const [isBuilding, setIsBuilding] = useState(false)
   const [sdkError, setSdkError] = useState<string | null>(null)
   const [txHash, setTxHash] = useState<`0x${string}` | undefined>()
 
+  const info = CLOBER_POOLS[pool.id]
+
+  // Pool reserves for ratio: [0]=usdcReserve (6 dec), [3]=wmonReserve (18 dec)
+  const { data: liquidityData } = useReadContract({
+    address: CLOBER_LV.address,
+    abi:     CLOBER_LV.abi,
+    functionName: 'getLiquidity',
+    args:    info ? [info.key] : undefined,
+    query:   { enabled: !!info, refetchInterval: 15_000 },
+  })
+  const reserves = liquidityData as readonly [bigint,bigint,bigint,bigint,bigint,bigint] | undefined
+  const usdcReserve = reserves?.[0] ?? 0n
+  const wmonReserve = reserves?.[3] ?? 0n
+
+  // MON
   const { data: nativeBal } = useBalance({ address: address as `0x${string}` | undefined })
   const monBalWei = nativeBal?.value ?? 0n
   const monBalStr = nativeBal ? (Number(monBalWei) / 1e18).toString() : undefined
-
   const parsedMon = monAmt && Number(monAmt) > 0 ? parseEther(monAmt) : 0n
-  const monInsufficient = parsedMon > 0n && !!address && nativeBal
-    ? parsedMon > monBalWei : false
 
-  const effectiveSlippage = slippage === 'custom' ? (Number(customSlippage) || 1) : slippage
+  // Required USDC = parsedMon × usdcReserve / wmonReserve  (all bigint, result in 6-dec units)
+  const usdcRequired = wmonReserve > 0n && parsedMon > 0n
+    ? (parsedMon * usdcReserve) / wmonReserve
+    : 0n
+  const usdcRequiredStr = usdcRequired > 0n ? (Number(usdcRequired) / 1e6).toFixed(4) : '—'
 
+  // USDC balance + Minter allowance
+  const { data: usdcBalRaw }  = useReadContract({ address: TOKENS.USDC, abi: ERC20_ABI, functionName: 'balanceOf',  args: [address as `0x${string}`], query: { enabled: !!address } })
+  const { data: usdcAllowRaw } = useReadContract({ address: TOKENS.USDC, abi: ERC20_ABI, functionName: 'allowance', args: [address as `0x${string}`, MINTER], query: { enabled: !!address } })
+  const usdcBal   = (usdcBalRaw   as bigint | undefined) ?? 0n
+  const usdcAllow = (usdcAllowRaw as bigint | undefined) ?? 0n
+
+  const monInsufficient  = parsedMon > 0n && parsedMon > monBalWei
+  const usdcInsufficient = usdcRequired > 0n && usdcRequired > usdcBal
+  const needsApprove     = usdcRequired > 0n && usdcAllow < usdcRequired
+  const currentStep      = needsApprove ? 0 : 1
+
+  const { writeContractAsync: approveWrite, isPending: isApproving } = useWriteContract()
   const { sendTransactionAsync } = useSendTransaction()
   const { isLoading: isConfirming, isSuccess } = useWaitForTransactionReceipt({ hash: txHash })
 
-  const info = CLOBER_POOLS[pool.id]
-
-  async function handleDeposit() {
-    if (!address || parsedMon === 0n || isBuilding || isConfirming || monInsufficient) return
-    setIsBuilding(true)
+  async function handleAction() {
+    if (!address || parsedMon === 0n || monInsufficient || usdcInsufficient || isBuilding || isApproving || isConfirming) return
     setSdkError(null)
     try {
-      const cloberQuote = async (
-        inputCurrency: { address: string },
-        amountIn: bigint,
-        outputCurrency: { address: string },
-        slippageParam: number,
-        _gasPrice: bigint,
-        userAddress: string,
-        timeout = 4000,
-      ) => {
-        const url = `https://app.clober.io/api/chains/143/quote` +
-          `?inputTokenAddress=${inputCurrency.address}` +
-          `&outputTokenAddress=${outputCurrency.address}` +
-          `&amountIn=${amountIn.toString()}` +
-          `&slippageLimitPercent=${slippageParam}` +
-          `&userAddress=${userAddress}`
-        const res = await Promise.race([
-          fetch(url),
-          new Promise<Response>((_, rej) =>
-            setTimeout(() => rej(new Error('Quote timeout')), timeout)
-          ),
-        ]) as Response
-        const data = await res.json()
-        const best = data.bestQuote
-        if (!best?.transaction) {
-          return { amountOut: 0n, transaction: undefined, aggregator: { name: 'Clober' } }
-        }
-        return {
-          amountOut: BigInt(best.amountOut),
-          transaction: best.transaction,
-          aggregator: { name: best.aggregator ?? 'Clober' },
-        }
+      if (currentStep === 0) {
+        // Approve USDC to Minter (10% buffer for minor ratio drift)
+        await approveWrite({
+          address: TOKENS.USDC, abi: ERC20_ABI, functionName: 'approve',
+          args: [MINTER, usdcRequired * 11n / 10n],
+        })
+      } else {
+        setIsBuilding(true)
+        // Build addLiquidity tx via SDK with disableSwap=true — no external quote API needed
+        // SDK sets value = parseUnits(amount1, 18) because token1 = zeroAddress (native MON)
+        const result = await addLiquidity({
+          chainId:     CHAIN_IDS.MONAD_MAINNET,
+          userAddress: address as `0x${string}`,
+          token0:      TOKENS.USDC,
+          token1:      '0x0000000000000000000000000000000000000000',
+          salt:        ('0x' + '0'.repeat(64)) as `0x${string}`,
+          amount0:     formatUnits(usdcRequired, 6),
+          amount1:     monAmt,
+          options:     { rpcUrl: 'https://rpc.monad.xyz', disableSwap: true },
+        })
+        if (!result.transaction) throw new Error('Could not build transaction')
+        const hash = await sendTransactionAsync({
+          to:    result.transaction.to as `0x${string}`,
+          data:  result.transaction.data as `0x${string}`,
+          value: result.transaction.value,
+          gas:   result.transaction.gas ? (result.transaction.gas as bigint) * 12n / 10n : undefined,
+        })
+        setTxHash(hash)
       }
-
-      // token0=USDC (pool.currencyA), token1=MON/zeroAddress (pool.currencyB)
-      // This ensures SDK sets value = amountBOrigin = parseUnits(amount1, 18) = MON wei
-      const result = await addLiquidity({
-        chainId: CHAIN_IDS.MONAD_MAINNET,
-        userAddress: address as `0x${string}`,
-        token0: TOKENS.USDC,
-        token1: '0x0000000000000000000000000000000000000000',
-        salt: '0x' + '0'.repeat(64) as `0x${string}`,
-        amount0: '0',
-        amount1: monAmt,
-        quotes: [cloberQuote],
-        options: { rpcUrl: 'https://rpc.monad.xyz', slippage: effectiveSlippage },
-      })
-
-      if (!result.transaction) {
-        throw new Error('Could not build transaction — try a larger amount')
-      }
-
-      const hash = await sendTransactionAsync({
-        to:    result.transaction.to as `0x${string}`,
-        data:  result.transaction.data as `0x${string}`,
-        value: result.transaction.value,
-        gas:   result.transaction.gas
-          ? (result.transaction.gas as bigint) * 12n / 10n
-          : undefined,
-      })
-      setTxHash(hash)
     } catch (e: unknown) {
-      setSdkError(
-        (e as Error).message?.split('\n')[0]?.slice(0, 150) ?? 'Unknown error'
-      )
+      setSdkError((e as Error).message?.split('\n')[0]?.slice(0, 150) ?? 'Unknown error')
     } finally {
       setIsBuilding(false)
     }
@@ -1258,95 +1254,45 @@ function CloberFlow({ pool, address }: { pool: LPPool; address?: string }) {
 
   if (!info) return <p className="text-xs text-slate-500 text-center py-4">Pool config not found for {pool.id}</p>
 
-  const btnLabel = isSuccess || (isConfirming && txHash)
-    ? '✓ Liquidity Added'
+  const btnLabel = isSuccess || (isConfirming && txHash) ? '✓ Liquidity Added'
     : isBuilding   ? 'Building transaction…'
+    : isApproving  ? 'Approving…'
     : isConfirming ? 'Transaction pending…'
+    : currentStep === 0 ? 'Approve USDC'
     : 'Add Liquidity'
 
-  const SLIPPAGE_OPTIONS: { value: 0.5 | 1 | 50; label: string }[] = [
-    { value: 0.5, label: '0.50%' },
-    { value: 1,   label: '1%'    },
-    { value: 50,  label: '∞'     },
-  ]
+  const disabled = !address || parsedMon === 0n || monInsufficient || usdcInsufficient
+    || isBuilding || isApproving || isConfirming || isSuccess
 
   return (
     <div className="space-y-4">
-      <AmountInput
-        label="You deposit"
-        token="MON"
-        value={monAmt}
-        onChange={setMonAmt}
-        max={monBalStr}
-      />
+      <AmountInput label="You deposit" token="MON" value={monAmt} onChange={setMonAmt} max={monBalStr} />
 
-      {/* Zap-in info */}
+      {/* Required USDC */}
+      <div className="flex items-center justify-between px-1">
+        <span className="text-xs text-slate-500">Also required (pool ratio)</span>
+        <span className={`text-xs font-medium ${usdcInsufficient ? 'text-rose-400' : 'text-slate-300'}`}>
+          {usdcRequiredStr} USDC
+          {usdcInsufficient && <span className="ml-1">(insufficient)</span>}
+        </span>
+      </div>
+
+      {/* Info box */}
       <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3">
-        <p className="text-xs text-slate-500 mb-1">Zap-in · 1 transaction</p>
         <p className="text-xs text-slate-400 leading-relaxed">
-          Enter any MON amount. Clober&apos;s router automatically swaps to the right MON/USDC ratio and adds liquidity atomically.
+          Provide MON + USDC in the current pool ratio. The required USDC is computed automatically.
+          You&apos;ll need to approve USDC, then add liquidity in one transaction.
         </p>
       </div>
 
-      {/* Max Slippage */}
-      <div className="flex items-center justify-between gap-3 px-0.5">
-        <span className="text-xs text-slate-500 shrink-0">Max Slippage</span>
-        <div className="flex items-center gap-0.5 bg-[#0a1220] border border-[#1a2535] rounded-xl p-1">
-          {SLIPPAGE_OPTIONS.map(({ value, label }) => (
-            <button
-              key={value}
-              onClick={() => setSlippage(value)}
-              className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-                slippage === value
-                  ? 'bg-[#CC3BFF]/20 text-[#CC3BFF]'
-                  : 'text-slate-400 hover:text-slate-200'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-          <button
-            onClick={() => setSlippage('custom')}
-            className={`px-3 py-1 rounded-lg text-xs font-medium transition-all ${
-              slippage === 'custom'
-                ? 'bg-[#CC3BFF]/20 text-[#CC3BFF]'
-                : 'text-slate-400 hover:text-slate-200'
-            }`}
-          >
-            {slippage === 'custom'
-              ? <input
-                  type="number"
-                  value={customSlippage}
-                  onChange={e => setCustomSlippage(e.target.value)}
-                  placeholder="—"
-                  className="bg-transparent w-10 outline-none text-center text-[#CC3BFF]"
-                  onClick={e => e.stopPropagation()}
-                />
-              : 'Custom %'
-            }
-          </button>
-        </div>
-      </div>
-
-      {/* Slippage warning */}
-      <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
-        <svg className="w-3.5 h-3.5 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
-        </svg>
-        <p className="text-xs text-amber-400/80 leading-relaxed">
-          The auto-swap may have slippage. For large amounts, consider depositing in smaller batches to reduce price impact.
-        </p>
-      </div>
-
-      {monInsufficient && (
+      {(monInsufficient || usdcInsufficient) && (
         <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
           <svg className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
           </svg>
-          <div>
-            <p className="text-xs font-semibold text-rose-400">Insufficient balance</p>
-            <p className="text-xs text-rose-400/70 mt-0.5">You do not have enough MON</p>
-          </div>
+          <p className="text-xs text-rose-400">
+            Insufficient {monInsufficient ? 'MON' : 'USDC'} — you need {monInsufficient ? monAmt + ' MON' : usdcRequiredStr + ' USDC'}
+          </p>
         </div>
       )}
 
@@ -1355,19 +1301,13 @@ function CloberFlow({ pool, address }: { pool: LPPool; address?: string }) {
         <span className="text-emerald-400 font-semibold">{pool.fee_apr.toFixed(2)}%</span>
       </div>
 
-      <Btn
-        label={btnLabel}
-        onClick={handleDeposit}
-        disabled={!address || parsedMon === 0n || isBuilding || isConfirming || isSuccess || monInsufficient}
-      />
+      {parsedMon > 0n && <Steps steps={['Approve USDC', 'Add Liquidity']} current={currentStep} />}
+
+      <Btn label={btnLabel} onClick={handleAction} disabled={disabled} />
 
       {txHash && (
-        <a
-          href={`https://monadexplorer.com/tx/${txHash}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate"
-        >
+        <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+          className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
           {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
         </a>
       )}
@@ -1385,13 +1325,13 @@ const LOG_1_0001 = Math.log(1.0001)
 const MIN_TICK_60 = -887220  // floor(-887272 / 60) * 60
 const MAX_TICK_60 =  887220
 
-function priceToTick(humanPrice: number, dec0: number, dec1: number): number {
+export function priceToTick(humanPrice: number, dec0: number, dec1: number): number {
   // rawPrice = token1_raw / token0_raw = humanPrice / 10^(dec0-dec1)
   const rawPrice = humanPrice / 10 ** (dec0 - dec1)
   return Math.log(rawPrice) / LOG_1_0001
 }
 
-function snapTick(tick: number, spacing: number, dir: 'floor' | 'ceil'): number {
+export function snapTick(tick: number, spacing: number, dir: 'floor' | 'ceil'): number {
   return dir === 'floor'
     ? Math.floor(tick / spacing) * spacing
     : Math.ceil(tick  / spacing) * spacing
@@ -1399,7 +1339,7 @@ function snapTick(tick: number, spacing: number, dir: 'floor' | 'ceil'): number 
 
 // V3 liquidity math: given amount0 (token0 raw) compute amount1 (token1 raw)
 // sqrtPriceX96: Q64.96 = sqrt(token1_raw / token0_raw) * 2^96
-function v3Amount1FromAmount0(
+export function v3Amount1FromAmount0(
   sqrtPriceX96: bigint,
   tickLower: number,
   tickUpper: number,
@@ -1413,7 +1353,7 @@ function v3Amount1FromAmount0(
   return Math.max(0, L * (sqrtPc - sqrtPa))
 }
 
-function v3Amount0FromAmount1(
+export function v3Amount0FromAmount1(
   sqrtPriceX96: bigint,
   tickLower: number,
   tickUpper: number,
@@ -1431,7 +1371,7 @@ function v3Amount0FromAmount1(
 // CE(token0) = sqrtPb / (sqrtPb - sqrtPc)  — derived from amount0 = L*(1/sqrtPc - 1/sqrtPb)
 // CE(token1) = sqrtPc / (sqrtPc - sqrtPa)  — derived from amount1 = L*(sqrtPc - sqrtPa)
 // Combined = geometric mean of both sides for a balanced estimate
-function capitalMultiplier(tickLower: number, tickUpper: number, currentTick: number): number {
+export function capitalMultiplier(tickLower: number, tickUpper: number, currentTick: number): number {
   if (tickLower <= MIN_TICK_60 && tickUpper >= MAX_TICK_60) return 1
   const sqrtPa = Math.sqrt(Math.pow(1.0001, tickLower))
   const sqrtPb = Math.sqrt(Math.pow(1.0001, tickUpper))
@@ -1442,13 +1382,13 @@ function capitalMultiplier(tickLower: number, tickUpper: number, currentTick: nu
   return Math.min(Math.sqrt(ce0 * ce1), 50)        // geometric mean, cap at 50x
 }
 
-const V3_RANGE_PRESETS = {
+export const V3_RANGE_PRESETS = {
   full:     { label: 'Full Range',  desc: '0 → ∞',          lowerPct: 1.00, upperPct: 10.00 },
   wide:     { label: 'Wide',        desc: '-50% to +100%',   lowerPct: 0.50, upperPct: 1.00  },
   moderate: { label: 'Moderate',    desc: '-25% to +50%',    lowerPct: 0.25, upperPct: 0.50  },
   narrow:   { label: 'Narrow',      desc: '-15% to +20%',    lowerPct: 0.15, upperPct: 0.20  },
 } as const
-type V3Preset = keyof typeof V3_RANGE_PRESETS
+export type V3Preset = keyof typeof V3_RANGE_PRESETS
 
 // ── Uniswap V3 LP flow (generalized — handles WMON side, ERC20-only, and native MON) ──
 function UniswapV3Flow({ pool, address }: { pool: LPPool; address?: string }) {
@@ -1734,7 +1674,7 @@ function UniswapV3Flow({ pool, address }: { pool: LPPool; address?: string }) {
 
 // Compute V4 liquidity L from raw float amounts
 // Same concentrated-liquidity math as V3
-function computeV4Liquidity(
+export function computeV4Liquidity(
   sqrtPriceX96: bigint,
   tickLower: number,
   tickUpper: number,
@@ -1762,7 +1702,7 @@ function computeV4Liquidity(
 // Encode modifyLiquidities unlockData
 // Actions: MINT_POSITION=0x02, SETTLE_PAIR=0x0D, SWEEP=0x14 (native refund)
 // Verified from Uniswap official tx on Monad: actions=020d14
-function encodeV4UnlockData(
+export function encodeV4UnlockData(
   currency0: `0x${string}`,
   currency1: `0x${string}`,
   fee: number,
@@ -1920,8 +1860,9 @@ function UniswapV4Flow({ pool, address }: { pool: LPPool; address?: string }) {
   // V4 uses Permit2 for ERC20 transfers — two-step approval per token:
   //   Step A: ERC20.approve(Permit2, MaxUint256)
   //   Step B: Permit2.approve(token, PositionManager, MaxUint160, 30-day deadline)
-  const pmAddr  = UNISWAP_V4_POSITION_MANAGER.address
-  const p2Addr  = PERMIT2.address
+  const pmAddr       = UNISWAP_V4_POSITION_MANAGER.address
+  const p2Addr       = PERMIT2.address
+  const publicClient = usePublicClient()
   const MAX_UINT256  = 2n ** 256n - 1n
   const MAX_UINT160  = 2n ** 160n - 1n
   const P2_DEADLINE  = 2n ** 48n - 1n // type(uint48).max — never expires
@@ -1994,6 +1935,45 @@ function UniswapV4Flow({ pool, address }: { pool: LPPool; address?: string }) {
 
   const hasInput  = raw0 > 0n || raw1 > 0n
 
+  // Save tokenId to localStorage after successful V4 mint
+  useEffect(() => {
+    if (!mintTx.isSuccess || !address) return
+    const addr: string = address
+
+    async function findAndSave(w: string) {
+      // Primary: parse Transfer(from=0, to=wallet, tokenId) from receipt logs
+      const TRANSFER = '0xddf252ad1be2c89b69c2b068fc378daa952ba7f163c4a11628f55a4df523b3ef'
+      const ZERO     = '0x0000000000000000000000000000000000000000000000000000000000000000'
+      if (mintTx.data?.logs) {
+        for (const log of mintTx.data.logs) {
+          if (
+            log.address.toLowerCase() === pmAddr.toLowerCase() &&
+            log.topics[0] === TRANSFER &&
+            log.topics[1] === ZERO &&
+            log.topics[3]
+          ) {
+            saveV4TokenId(w, BigInt(log.topics[3] as string))
+            return
+          }
+        }
+      }
+      // Fallback: nextTokenId() - 1 (minted id = nextTokenId before increment)
+      try {
+        const nextId = await publicClient?.readContract({
+          address: pmAddr as `0x${string}`,
+          abi: NEXT_ID_ABI,
+          functionName: 'nextTokenId',
+        })
+        if (typeof nextId === 'bigint' && nextId > 0n) {
+          saveV4TokenId(w, nextId - 1n)
+        }
+      } catch {}
+    }
+
+    findAndSave(addr)
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mintTx.isSuccess])
+
   function handleAction() {
     if (!address || isPending || insuf0 || insuf1 || !hasInput) return
     const addr  = address as `0x${string}`
@@ -2032,6 +2012,7 @@ function UniswapV4Flow({ pool, address }: { pool: LPPool; address?: string }) {
         // Send amount0Max (with 2% slippage buffer) as msg.value.
         // SETTLE_PAIR uses the actual delta0 from the pool; excess is refunded via SWEEP.
         value: hasNative ? raw0 * 102n / 100n : 0n,
+        gas: 3_000_000n,
       })
     }
   }
@@ -2136,7 +2117,7 @@ function UniswapV4Flow({ pool, address }: { pool: LPPool; address?: string }) {
 
 // ── Uniswap V2 LP flow (approve token0 → approve token1 → addLiquidity) ───────
 // Amounts auto-link to pool ratio via getReserves(). 1% slippage, 20-min deadline.
-function UniswapV2Flow({ pool, address }: { pool: LPPool; address?: string }) {
+export function UniswapV2Flow({ pool, address }: { pool: LPPool; address?: string }) {
   const [amt0, setAmt0] = useState('')
   const [amt1, setAmt1] = useState('')
 
@@ -2610,7 +2591,7 @@ function PancakeSwapV3Flow({ pool, address }: { pool: LPPool; address?: string }
 }
 
 // ── Lending Flow — dispatch by protocol ───────────────────────────────────────
-function LendingFlow({ pool, address }: { pool: LendingPool; address?: string }) {
+export function LendingFlow({ pool, address }: { pool: LendingPool; address?: string }) {
   if (pool.protocol === 'Morpho')    return <MorphoFlow pool={pool} address={address} />
   if (pool.protocol === 'Neverland') return <NeverlandFlow pool={pool} address={address} />
   if (pool.protocol === 'Curvance')  return <CurvanceLendingFlow pool={pool} address={address} />
@@ -2623,7 +2604,7 @@ function LendingFlow({ pool, address }: { pool: LendingPool; address?: string })
 }
 
 // ── Borrow Flow ───────────────────────────────────────────────────────────────
-function BorrowFlow({ pool, address }: { pool: BorrowingPool; address?: string }) {
+export function BorrowFlow({ pool, address }: { pool: BorrowingPool; address?: string }) {
   if (pool.protocol === 'Curvance') {
     return <CurvanceBorrowFlow pool={pool} address={address} />
   }
