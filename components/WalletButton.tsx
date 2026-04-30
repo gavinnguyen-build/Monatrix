@@ -6,21 +6,20 @@ import { useAccount, useConnect, useDisconnect, useConnectors } from 'wagmi'
 
 // ─── Popular wallets (shown when not installed) ────────────────────────────────
 const POPULAR = [
-  { name: 'MetaMask',       color: '#E8831D', url: 'https://metamask.io'                  },
-  { name: 'Rabby Wallet',   color: '#7B3FE4', url: 'https://rabby.io'                     },
-  { name: 'Coinbase Wallet',color: '#1652F0', url: 'https://www.coinbase.com/wallet'      },
-  { name: 'Trust Wallet',   color: '#3375BB', url: 'https://trustwallet.com'              },
-  { name: 'Rainbow',        color: '#174299', url: 'https://rainbow.me'                   },
-  { name: 'Phantom',        color: '#4E44CE', url: 'https://phantom.app'                  },
+  { name: 'MetaMask',       icon: '/logos/wallets/metamask.svg', url: 'https://metamask.io'             },
+  { name: 'Rabby Wallet',   icon: '/logos/wallets/rabby.svg',    url: 'https://rabby.io'                },
+  { name: 'Coinbase Wallet',icon: '/logos/wallets/coinbase.svg', url: 'https://www.coinbase.com/wallet' },
+  { name: 'Trust Wallet',   icon: '/logos/wallets/trust.svg',    url: 'https://trustwallet.com'         },
+  { name: 'Rainbow',        icon: '/logos/wallets/rainbow.svg',  url: 'https://rainbow.me'              },
+  { name: 'Phantom',        icon: '/logos/wallets/phantom.svg',  url: 'https://phantom.app'             },
 ]
 
 // ─── Wallet icon ───────────────────────────────────────────────────────────────
 function WalletIcon({
-  icon, name, color, size = 44,
+  icon, name, size = 44,
 }: {
   icon?: string | null
   name: string
-  color?: string
   size?: number
 }) {
   if (icon) {
@@ -36,8 +35,8 @@ function WalletIcon({
   }
   return (
     <div
-      style={{ width: size, height: size, backgroundColor: color ?? '#333' }}
-      className="rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0"
+      style={{ width: size, height: size }}
+      className="rounded-xl bg-slate-700 flex items-center justify-center text-white font-bold text-lg shrink-0"
     >
       {name[0]}
     </div>
@@ -109,7 +108,7 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
                 rel="noopener noreferrer"
                 className="flex items-center gap-3.5 px-2 py-2.5 rounded-xl hover:bg-white/[0.07] transition-colors"
               >
-                <WalletIcon name={w.name} color={w.color} />
+                <WalletIcon icon={w.icon} name={w.name} />
                 <span className="text-[15px] font-semibold text-white">{w.name}</span>
               </a>
             ))}
