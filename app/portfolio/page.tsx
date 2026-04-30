@@ -1,9 +1,9 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import { useAccount, useConnect, useDisconnect } from 'wagmi'
-import { injected } from 'wagmi/connectors'
+import { useAccount, useDisconnect } from 'wagmi'
 import { useRouter } from 'next/navigation'
+import { ConnectModal } from '@/components/WalletButton'
 import { fetchPortfolio, type Position, type TokenAmount } from '@/lib/portfolio'
 import { saveV4TokenId, loadV4TokenIds } from '@/lib/v4positions'
 
@@ -341,8 +341,8 @@ function EmptyState() {
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function PortfolioPage() {
   const { address, isConnected } = useAccount()
-  const { connect }    = useConnect()
   const { disconnect } = useDisconnect()
+  const [connectOpen, setConnectOpen] = useState(false)
   const router         = useRouter()
 
   const [positions, setPositions] = useState<Position[]>([])
@@ -383,11 +383,12 @@ export default function PortfolioPage() {
           Connect your wallet to see all your DeFi positions across Monad protocols in one place.
         </p>
         <button
-          onClick={() => connect({ connector: injected() })}
+          onClick={() => setConnectOpen(true)}
           className="px-6 py-3 font-semibold bg-[#CC3BFF] text-white rounded-xl hover:opacity-90 transition-all"
         >
           Connect Wallet
         </button>
+        {connectOpen && <ConnectModal onClose={() => setConnectOpen(false)} />}
       </div>
     )
   }

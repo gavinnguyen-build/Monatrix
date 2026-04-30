@@ -3,10 +3,10 @@
 import { useState, useEffect } from 'react'
 import { saveV4TokenId } from '@/lib/v4positions'
 import {
-  useAccount, useConnect, useDisconnect, useBalance,
+  useAccount, useDisconnect, useBalance,
   useWriteContract, useWaitForTransactionReceipt, useReadContract, usePublicClient,
 } from 'wagmi'
-import { injected } from 'wagmi/connectors'
+import { ConnectModal } from '@/components/WalletButton'
 import { parseUnits, formatUnits, encodeFunctionData } from 'viem'
 import type { Pool, LendingPool, BorrowingPool, LiquidStakingPool, LPPool } from '@/types'
 import {
@@ -103,8 +103,8 @@ const TYPE_COLORS: Record<string, string> = {
 // ── WalletSection ─────────────────────────────────────────────────────────────
 function WalletSection({ action = 'deposit' }: { action?: string }) {
   const { address, isConnected } = useAccount()
-  const { connect } = useConnect()
   const { disconnect } = useDisconnect()
+  const [open, setOpen] = useState(false)
 
   if (isConnected && address) {
     return (
@@ -125,19 +125,22 @@ function WalletSection({ action = 'deposit' }: { action?: string }) {
   }
 
   return (
-    <div className="flex items-center justify-between bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 gap-3">
-      <div>
-        <p className="text-sm font-medium text-white">Connect wallet</p>
-        <p className="text-xs text-slate-500 mt-0.5">Required to {action}</p>
+    <>
+      <div className="flex items-center justify-between bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 gap-3">
+        <div>
+          <p className="text-sm font-medium text-white">Connect wallet</p>
+          <p className="text-xs text-slate-500 mt-0.5">Required to {action}</p>
+        </div>
+        <button
+          type="button"
+          onClick={() => setOpen(true)}
+          className="shrink-0 px-4 py-1.5 text-xs font-semibold bg-[#CC3BFF] hover:opacity-90 text-white rounded-lg transition-colors"
+        >
+          Connect
+        </button>
       </div>
-      <button
-        type="button"
-        onClick={() => connect({ connector: injected() })}
-        className="shrink-0 px-4 py-1.5 text-xs font-semibold bg-[#CC3BFF] hover:opacity-90 text-white rounded-lg transition-colors"
-      >
-        Connect
-      </button>
-    </div>
+      {open && <ConnectModal onClose={() => setOpen(false)} />}
+    </>
   )
 }
 

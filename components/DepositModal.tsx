@@ -1,8 +1,8 @@
 'use client'
 
 import { useState, useEffect } from 'react'
-import { useAccount, useConnect, useDisconnect, useBalance, useWriteContract, useWaitForTransactionReceipt, useReadContract, useSendTransaction, usePublicClient } from 'wagmi'
-import { injected } from 'wagmi/connectors'
+import { useAccount, useDisconnect, useBalance, useWriteContract, useWaitForTransactionReceipt, useReadContract, useSendTransaction, usePublicClient } from 'wagmi'
+import { ConnectModal } from '@/components/WalletButton'
 import { parseEther, parseUnits, formatUnits, encodeFunctionData, encodeAbiParameters } from 'viem'
 import type { Pool, LendingPool, BorrowingPool, LiquidStakingPool, LPPool } from '@/types'
 import { APRIORI, FASTLANE, KINTSU, MAGMA, ERC20_ABI, ERC4626_ABI, MORPHO_VAULTS, NEVERLAND, NEVERLAND_ORACLE, NEVERLAND_RESERVES, NEVERLAND_BORROW_RESERVES, CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS, CURVANCE_BORROW_ABI, KURU_VAULTS, KURU_VAULT_ABI, KURU_MARGIN_ACCOUNT, TOKENS, CLOBER_LV, CLOBER_POOLS, UNISWAP_V2_ROUTER, UNISWAP_V2_PAIR_ABI, UNISWAP_V2_POOLS, UNISWAP_V3_NPM, UNISWAP_V3_POOL_ABI, UNISWAP_V3_POOLS, UNISWAP_V4_POSITION_MANAGER, UNISWAP_V4_STATE_VIEW, UNISWAP_V4_POOLS, PERMIT2, PANCAKESWAP_V3_NPM, PANCAKESWAP_V3_POOL_ABI, PANCAKESWAP_V3_POOLS } from '@/lib/contracts'
@@ -2614,8 +2614,8 @@ export function BorrowFlow({ pool, address }: { pool: BorrowingPool; address?: s
 // ── Main export ───────────────────────────────────────────────────────────────
 export function DepositModal({ pool, onClose }: { pool: Pool; onClose: () => void }) {
   const { address, isConnected } = useAccount()
-  const { connect } = useConnect()
   const { disconnect } = useDisconnect()
+  const [connectOpen, setConnectOpen] = useState(false)
 
   const isLP = pool.type === 'lp'
   const isBorrow = pool.type === 'borrowing'
@@ -2694,13 +2694,14 @@ export function DepositModal({ pool, onClose }: { pool: Pool; onClose: () => voi
               </div>
               <button
                 type="button"
-                onClick={() => connect({ connector: injected() })}
+                onClick={() => setConnectOpen(true)}
                 className="shrink-0 px-4 py-1.5 text-xs font-semibold bg-[#CC3BFF] hover:opacity-90 text-white rounded-lg transition-colors"
               >
                 Connect
               </button>
             </div>
           )}
+          {connectOpen && <ConnectModal onClose={() => setConnectOpen(false)} />}
 
           {/* Flow by type */}
           {pool.type === 'liquid_staking' && (
