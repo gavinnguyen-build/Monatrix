@@ -28,9 +28,6 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
           <main className="flex-1">
             {children}
           </main>
-          <footer className="border-t border-[var(--border)] py-4 text-center text-xs text-slate-500">
-            Monatrix · Monad Chain (ID: 143) · Data refreshes every 4 hours
-          </footer>
         </Providers>
       </body>
     </html>
