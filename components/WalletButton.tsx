@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { createPortal } from 'react-dom'
 import { useAccount, useConnect, useDisconnect, useConnectors } from 'wagmi'
 
 // ─── Popular wallets (shown when not installed) ────────────────────────────────
@@ -55,7 +56,7 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
     )
   )
 
-  return (
+  return createPortal(
     <div
       className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
@@ -128,7 +129,8 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
           </a>
         </div>
       </div>
-    </div>
+    </div>,
+    document.body
   )
 }
 
