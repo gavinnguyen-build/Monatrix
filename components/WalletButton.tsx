@@ -97,8 +97,8 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
             </div>
           )}
 
-          {/* Popular */}
-          <div>
+          {/* Popular — only show if there are wallets not yet installed */}
+          {popular.length > 0 && <div>
             <p className="text-xs font-semibold text-slate-500 px-2 mb-1">Popular</p>
             {popular.map(w => (
               <a
@@ -112,7 +112,7 @@ export function ConnectModal({ onClose }: { onClose: () => void }) {
                 <span className="text-[15px] font-semibold text-white">{w.name}</span>
               </a>
             ))}
-          </div>
+          </div>}
         </div>
 
         {/* Footer */}
