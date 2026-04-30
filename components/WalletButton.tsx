@@ -3,96 +3,136 @@
 import { useState } from 'react'
 import { useAccount, useConnect, useDisconnect, useConnectors } from 'wagmi'
 
-// ─── Wallet Select Modal ──────────────────────────────────────────────────────
+// ─── Popular wallets (shown when not installed) ────────────────────────────────
+const POPULAR = [
+  { name: 'MetaMask',       color: '#E8831D', url: 'https://metamask.io'                  },
+  { name: 'Rabby Wallet',   color: '#7B3FE4', url: 'https://rabby.io'                     },
+  { name: 'Coinbase Wallet',color: '#1652F0', url: 'https://www.coinbase.com/wallet'      },
+  { name: 'Trust Wallet',   color: '#3375BB', url: 'https://trustwallet.com'              },
+  { name: 'Rainbow',        color: '#174299', url: 'https://rainbow.me'                   },
+  { name: 'Phantom',        color: '#4E44CE', url: 'https://phantom.app'                  },
+]
+
+// ─── Wallet icon ───────────────────────────────────────────────────────────────
+function WalletIcon({
+  icon, name, color, size = 44,
+}: {
+  icon?: string | null
+  name: string
+  color?: string
+  size?: number
+}) {
+  if (icon) {
+    return (
+      <img
+        src={icon}
+        alt={name}
+        width={size}
+        height={size}
+        className="rounded-xl object-cover shrink-0"
+      />
+    )
+  }
+  return (
+    <div
+      style={{ width: size, height: size, backgroundColor: color ?? '#333' }}
+      className="rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0"
+    >
+      {name[0]}
+    </div>
+  )
+}
+
+// ─── Connect Modal ─────────────────────────────────────────────────────────────
 export function ConnectModal({ onClose }: { onClose: () => void }) {
-  const connectors = useConnectors()
+  const connectors   = useConnectors()
   const { connect, isPending } = useConnect()
 
-  const popularWallets = [
-    { name: 'MetaMask',      url: 'https://metamask.io',   icon: '/logos/wallets/metamask.svg'  },
-    { name: 'Rabby',         url: 'https://rabby.io',      icon: '/logos/wallets/rabby.svg'     },
-    { name: 'Coinbase Wallet', url: 'https://www.coinbase.com/wallet', icon: '/logos/wallets/coinbase.svg' },
-  ]
+  // Filter popular wallets that are NOT already detected
+  const popular = POPULAR.filter(w =>
+    !connectors.some(c =>
+      c.name.toLowerCase().includes(w.name.split(' ')[0].toLowerCase())
+    )
+  )
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 backdrop-blur-sm"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm"
       onClick={onClose}
     >
       <div
-        className="w-full sm:max-w-sm bg-[#0F0F14] border border-white/10 rounded-t-2xl sm:rounded-2xl p-5 pb-8 sm:pb-5"
+        className="w-full max-w-sm bg-[#1c1c1c] rounded-2xl shadow-2xl flex flex-col overflow-hidden"
+        style={{ maxHeight: '80vh' }}
         onClick={e => e.stopPropagation()}
       >
         {/* Header */}
-        <div className="flex items-center justify-between mb-5">
-          <h2 className="text-base font-semibold text-white">Connect Wallet</h2>
+        <div className="relative flex items-center justify-center px-5 py-4">
+          <h2 className="text-base font-bold text-white">Connect a Wallet</h2>
           <button
             onClick={onClose}
-            className="text-slate-500 hover:text-white transition-colors text-lg leading-none"
+            className="absolute right-4 w-7 h-7 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-slate-400 hover:text-white transition-colors text-sm"
           >
             ✕
           </button>
         </div>
 
-        {/* Detected wallets */}
-        {connectors.length > 0 ? (
-          <div className="space-y-2">
-            {connectors.map(connector => (
-              <button
-                key={connector.uid}
-                onClick={() => { connect({ connector }); onClose() }}
-                disabled={isPending}
-                className="w-full flex items-center gap-3 px-4 py-3.5 rounded-xl border border-white/8 bg-white/[0.03] hover:bg-white/[0.07] hover:border-white/15 transition-all text-left disabled:opacity-50"
-              >
-                {connector.icon ? (
-                  <img src={connector.icon} alt={connector.name} className="w-8 h-8 rounded-lg shrink-0" />
-                ) : (
-                  <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 shrink-0">
-                    {connector.name[0]}
-                  </div>
-                )}
-                <div>
-                  <p className="text-sm font-medium text-white">{connector.name}</p>
-                  <p className="text-[11px] text-slate-500">Detected</p>
-                </div>
-                <div className="ml-auto w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
-              </button>
-            ))}
-          </div>
-        ) : (
-          /* No wallet detected */
-          <div className="text-center py-4">
-            <p className="text-slate-400 text-sm mb-1">Không tìm thấy wallet</p>
-            <p className="text-slate-600 text-xs mb-5">Cài một trong các ví dưới đây rồi thử lại</p>
-            <div className="space-y-2">
-              {popularWallets.map(w => (
-                <a
-                  key={w.name}
-                  href={w.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-3 px-4 py-3 rounded-xl border border-white/8 bg-white/[0.02] hover:bg-white/[0.06] transition-all"
+        {/* Wallet list */}
+        <div className="overflow-y-auto flex-1 px-3 pb-2">
+
+          {/* Installed */}
+          {connectors.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-semibold text-[#CC3BFF] px-2 mb-1">Installed</p>
+              {connectors.map(connector => (
+                <button
+                  key={connector.uid}
+                  onClick={() => { connect({ connector }); onClose() }}
+                  disabled={isPending}
+                  className="w-full flex items-center gap-3.5 px-2 py-2.5 rounded-xl hover:bg-white/[0.07] transition-colors text-left disabled:opacity-50"
                 >
-                  <div className="w-8 h-8 rounded-lg bg-slate-700 flex items-center justify-center text-xs font-bold text-slate-300 shrink-0">
-                    {w.name[0]}
-                  </div>
-                  <span className="text-sm font-medium text-white">{w.name}</span>
-                  <span className="ml-auto text-[11px] text-slate-500">Install →</span>
-                </a>
+                  <WalletIcon icon={connector.icon} name={connector.name} />
+                  <span className="text-[15px] font-semibold text-white">{connector.name}</span>
+                </button>
               ))}
             </div>
-          </div>
-        )}
+          )}
 
-        <p className="text-[10px] text-slate-600 text-center mt-4">
-          By connecting, you agree to Monatrix Terms of Use
-        </p>
+          {/* Popular */}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 px-2 mb-1">Popular</p>
+            {popular.map(w => (
+              <a
+                key={w.name}
+                href={w.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-3.5 px-2 py-2.5 rounded-xl hover:bg-white/[0.07] transition-colors"
+              >
+                <WalletIcon name={w.name} color={w.color} />
+                <span className="text-[15px] font-semibold text-white">{w.name}</span>
+              </a>
+            ))}
+          </div>
+        </div>
+
+        {/* Footer */}
+        <div className="flex items-center justify-between px-5 py-3.5 border-t border-white/[0.07]">
+          <p className="text-xs text-slate-500">New to Ethereum wallets?</p>
+          <a
+            href="https://ethereum.org/en/wallets/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs font-semibold text-[#CC3BFF] hover:underline"
+          >
+            Learn More
+          </a>
+        </div>
       </div>
     </div>
   )
 }
 
-// ─── Wallet Button ────────────────────────────────────────────────────────────
+// ─── Wallet Button ─────────────────────────────────────────────────────────────
 export function WalletButton() {
   const { address, isConnected } = useAccount()
   const { disconnect } = useDisconnect()
@@ -117,7 +157,6 @@ export function WalletButton() {
       >
         Connect Wallet
       </button>
-
       {open && <ConnectModal onClose={() => setOpen(false)} />}
     </>
   )
