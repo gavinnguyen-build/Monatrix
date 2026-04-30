@@ -7,11 +7,11 @@ import { useAccount, useConnect, useDisconnect, useConnectors } from 'wagmi'
 // ─── Popular wallets (shown when not installed) ────────────────────────────────
 const POPULAR = [
   { name: 'MetaMask',       icon: '/logos/wallets/metamask.svg', url: 'https://metamask.io'             },
-  { name: 'Rabby Wallet',   icon: '/logos/wallets/rabby.svg',    url: 'https://rabby.io'                },
-  { name: 'Coinbase Wallet',icon: '/logos/wallets/coinbase.svg', url: 'https://www.coinbase.com/wallet' },
-  { name: 'Trust Wallet',   icon: '/logos/wallets/trust.svg',    url: 'https://trustwallet.com'         },
-  { name: 'Rainbow',        icon: '/logos/wallets/rainbow.svg',  url: 'https://rainbow.me'              },
-  { name: 'Phantom',        icon: '/logos/wallets/phantom.svg',  url: 'https://phantom.app'             },
+  { name: 'Rabby Wallet',   icon: '/logos/wallets/rabby.jpg',    url: 'https://rabby.io'                },
+  { name: 'Coinbase Wallet',icon: '/logos/wallets/coinbase.png', url: 'https://www.coinbase.com/wallet' },
+  { name: 'Trust Wallet',   icon: '/logos/wallets/trust.jpg',    url: 'https://trustwallet.com'         },
+  { name: 'Rainbow',        icon: '/logos/wallets/rainbow.png',  url: 'https://rainbow.me'              },
+  { name: 'Phantom',        icon: '/logos/wallets/phantom.jpg',  url: 'https://phantom.app'             },
 ]
 
 // ─── Wallet icon ───────────────────────────────────────────────────────────────
