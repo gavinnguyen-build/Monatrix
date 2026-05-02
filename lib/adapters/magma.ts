@@ -15,10 +15,16 @@ const monad = defineChain({
 // gMON ERC4626 vault — stake MON, receive gMON
 const GMON = '0x8498312A6B3CbD158bf0c93AbdCF29E6e4F55081' as const
 
-// DefiLlama pool UUID for gMON on Monad (stable, won't change)
-const DEFILLAMA_POOL_ID = '96f74061-dc9a-4ef7-8117-6cd3935230de'
-
 const ABI = parseAbi(['function totalAssets() view returns (uint256)'])
+
+// Magma historical APY indexer (Hyperindex) — most accurate source
+const MAGMA_INDEXER = 'https://indexer.hyperindex.xyz/a7dd119/v1/graphql'
+const APY_QUERY = `{
+  CoreVault_APY(limit: 1, order_by: {endTimestamp: desc}) {
+    totalAPR
+    endTimestamp
+  }
+}`
 
 // ─── Main ──────────────────────────────────────────────────────────────────────
 export async function fetchMagmaPools(): Promise<LiquidStakingPool[]> {
@@ -26,22 +32,32 @@ export async function fetchMagmaPools(): Promise<LiquidStakingPool[]> {
 
   const client = createPublicClient({ chain: monad, transport: http('https://rpc.monad.xyz') })
 
-  // Parallel: DefiLlama pool data (APY + TVL) + on-chain totalAssets for cross-check
-  const [llamaRes, totalAssets] = await Promise.all([
-    fetch('https://yields.llama.fi/pools')
-      .then(r => r.json()) as Promise<{ data: { pool: string; apy: number; tvlUsd: number }[] }>,
+  // Parallel: Magma indexer APY + on-chain totalAssets + MON price
+  const [indexerRes, totalAssets, priceRes] = await Promise.all([
+    fetch(MAGMA_INDEXER, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query: APY_QUERY }),
+    }).then(r => r.json()) as Promise<{ data: { CoreVault_APY: { totalAPR: string; endTimestamp: string }[] } }>,
     client.readContract({ address: GMON, abi: ABI, functionName: 'totalAssets' }),
+    fetch('https://coins.llama.fi/prices/current/coingecko:monad')
+      .then(r => r.json()) as Promise<{ coins: Record<string, { price: number }> }>,
   ])
 
-  const llamaPool = llamaRes.data.find(p => p.pool === DEFILLAMA_POOL_ID)
-  if (!llamaPool) throw new Error('[Magma] gMON pool not found on DefiLlama')
+  const apyRow = indexerRes.data?.CoreVault_APY?.[0]
+  if (!apyRow) throw new Error('[Magma] APY not found in Magma indexer response')
 
-  const apy = llamaPool.apy
-  const tvl = llamaPool.tvlUsd
+  // totalAPR is stored ×100 (e.g. 1523 = 15.23%)
+  const apy = parseFloat(apyRow.totalAPR) / 100
+
+  // TVL = on-chain totalAssets (MON) × MON price
+  const monPrice = priceRes.coins['coingecko:monad']?.price ?? 0
+  const totalMon = Number(totalAssets) / 1e18
+  const tvl = totalMon * monPrice
 
   console.log(
-    `[Magma] gMON: onChain=${(Number(totalAssets) / 1e18).toFixed(0)} MON` +
-    ` TVL=$${tvl.toFixed(0)} APY=${apy.toFixed(2)}% (source: DefiLlama)`
+    `[Magma] gMON: onChain=${totalMon.toFixed(0)} MON` +
+    ` TVL=$${tvl.toFixed(0)} APY=${apy.toFixed(2)}% (source: Magma indexer)`
   )
 
   const pool: LiquidStakingPool = {
