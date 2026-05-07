@@ -271,7 +271,7 @@ function TrackV4Panel({ address, onTracked }: { address: string; onTracked: () =
       >
         <span className="flex items-center gap-2">
           <span className="text-fuchsia-400">⬡</span>
-          Track Uniswap V4 position theo tokenId
+          Track Uniswap V4 position by tokenId
         </span>
         <span className="text-slate-600">{open ? '▲' : '▼'}</span>
       </button>
@@ -279,7 +279,7 @@ function TrackV4Panel({ address, onTracked }: { address: string; onTracked: () =
       {open && (
         <div className="px-4 pb-4 space-y-3 border-t border-white/5 pt-3">
           <p className="text-[11px] text-slate-500">
-            V4 positions được lưu theo domain. Nếu bạn deposit qua localhost, nhập tokenId để track trên domain này.
+            V4 positions are stored by tokenID. Enter the ID to track if the position is not tracked yet.
           </p>
 
           {/* Existing tracked IDs */}
