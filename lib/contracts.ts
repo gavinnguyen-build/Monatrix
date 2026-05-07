@@ -291,6 +291,13 @@ export const CURVANCE_BORROW_MARKETS: Record<string, {
   'curvance-yzm-ausd-borrow':      { colCToken: '0x8626B8f4F64CAeee9549Af8ebbFA591A7425e5ba', colAsset: '0x3a2c4aAae6776dC1c31316De559598f2f952E2cB', colDec: 6,  colSym: 'YZM',      loanCToken: '0xcdc9D2c4EaD8f2A9FD3D6F5a00bA4e6001ab7898', loanDec: 6,  loanSym: 'AUSD' },
   'curvance-vusd-ausd-borrow':     { colCToken: '0x42369AFe4bA4225b800b8024Acc5F14f42A3836C', colAsset: '0x8d3F9f9Eb2f5E8B48EFBB4074440D1E2A34Bc365', colDec: 6,  colSym: 'vUSD',     loanCToken: '0x4806902Ec0320e5334c2B2679FFB58C830348F1c', loanDec: 6,  loanSym: 'AUSD' },
   'curvance-ebtc-wbtc-borrow':     { colCToken: '0x2840772E14fFbe337aB966727B7D1Dd09BDc76E4', colAsset: '0xd691b0aFed67F96CEC28Ab6308Cbe5b2C103b7e9', colDec: 10, colSym: 'eBTC',     loanCToken: '0xdB3e888c3b50771821226d30Ab6eC14eB5ba85bA', loanDec: 8,  loanSym: 'WBTC' },
+
+  // Reverse borrow markets — col/loan swapped vs the primary market above
+  'curvance-wmon-ausd-col-borrow': { colCToken: '0x6E182EB501800C555bd5E662E6D350D627F504D8', colAsset: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', colDec: 6,  colSym: 'AUSD', loanCToken: '0xE01d426B589c7834a5F6B20D7e992A705d3c22ED', loanDec: 18, loanSym: 'WMON' },
+  'curvance-wmon-usdc-col-borrow': { colCToken: '0x8EE9FC28B8Da872c38A496e9dDB9700bb7261774', colAsset: '0x754704bc059f8c67012fed69bc8a327a5aafb603', colDec: 6,  colSym: 'USDC', loanCToken: '0x1e240E30E51491546deC3aF16B0b4EAC8Dd110D4', loanDec: 18, loanSym: 'WMON' },
+  'curvance-wbtc-usdc-col-borrow': { colCToken: '0x7C9d4f1695C6282Da5e5509Aa51fC9fb417C6f1d', colAsset: '0x754704bc059f8c67012fed69bc8a327a5aafb603', colDec: 6,  colSym: 'USDC', loanCToken: '0x3D2Ff9F862D89Ba526a0fC166bD56ABe04EF28d5', loanDec: 8,  loanSym: 'WBTC' },
+  'curvance-weth-usdc-col-borrow': { colCToken: '0x21aDBb60a5fB909e7F1fB48aACC4569615CD97b5', colAsset: '0x754704bc059f8c67012fed69bc8a327a5aafb603', colDec: 6,  colSym: 'USDC', loanCToken: '0x8Af00fbbb2601A8F7636EabbF6243B30BEA47D50', loanDec: 18, loanSym: 'WETH' },
+  'curvance-ebtc-wbtc-col-borrow': { colCToken: '0xdB3e888c3b50771821226d30Ab6eC14eB5ba85bA', colAsset: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', colDec: 8,  colSym: 'WBTC', loanCToken: '0x2840772E14fFbe337aB966727B7D1Dd09BDc76E4', loanDec: 10, loanSym: 'eBTC' },
 }
 
 // ── Kuru Managed Vaults ───────────────────────────────────────────────────────
