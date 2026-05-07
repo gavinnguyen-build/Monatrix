@@ -95,5 +95,19 @@ export async function GET(req: NextRequest) {
   }
 
   console.log(`[Cron] Upserted ${pools.length} pools`)
+
+  // Delete stale pools that are no longer produced by any adapter
+  // Only run cleanup when all adapters succeeded (no errors) to avoid accidentally
+  // deleting valid pools if an adapter temporarily fails
+  if (errors.length === 0) {
+    const currentIds = pools.map(p => p.id)
+    const { error: delErr, count: delCount } = await supabaseAdmin
+      .from('pools')
+      .delete({ count: 'exact' })
+      .not('id', 'in', `(${currentIds.map(id => `'${id}'`).join(',')})`)
+    if (delErr) console.warn('[Cron] Stale pool cleanup failed:', delErr.message)
+    else if (delCount && delCount > 0) console.log(`[Cron] Deleted ${delCount} stale pools`)
+  }
+
   return NextResponse.json({ ok: true, count: pools.length, pools: pools.map(p => p.id), errors })
 }
