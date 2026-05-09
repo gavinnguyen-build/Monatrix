@@ -33,8 +33,8 @@ const CONVERT_ABI     = parseAbi(['function convertToAssets(uint256 shares) view
 const EXCH_RATE_ABI   = parseAbi(['function exchangeRateStored() view returns (uint256)'])
 const TOTAL_SUP_ABI   = parseAbi(['function totalSupply() view returns (uint256)'])
 const GET_BALANCE_ABI = parseAbi(['function getBalance(address user, address token) view returns (uint256)'])
-// Compound V2 borrow balance (Curvance loanCToken)
-const BORROW_BAL_ABI = parseAbi(['function borrowBalanceStored(address account) view returns (uint256)'])
+// Curvance loanCToken borrow balance — NOT Compound V2; uses debtBalance(address)
+const BORROW_BAL_ABI = parseAbi(['function debtBalance(address account) view returns (uint256)'])
 // Aave V3 RewardsController — Neverland DUST rewards
 const DUST_REWARDS_ABI = parseAbi(['function getUserRewards(address[] assets, address user, address reward) view returns (uint256)'])
 const DUST_REWARDS_CONTROLLER = '0x57ea245cCbFAb074baBb9d01d1F0c60525E52cec' as Address
@@ -1164,11 +1164,11 @@ export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
         })),
         allowFailure: true,
       }),
-      // Curvance: loanCToken.borrowBalanceStored(wallet) for each borrow market
+      // Curvance: loanCToken.debtBalance(wallet) for each borrow market
       client.multicall({
         contracts: curvanceBorrowKeys.map(k => ({
           address: CURVANCE_BORROW_MARKETS[k].loanCToken, abi: BORROW_BAL_ABI,
-          functionName: 'borrowBalanceStored' as const, args: [wallet] as const,
+          functionName: 'debtBalance' as const, args: [wallet] as const,
         })),
         allowFailure: true,
       }),

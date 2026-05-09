@@ -8,6 +8,8 @@ import type { Pool, LendingPool, BorrowingPool, LiquidStakingPool, LPPool } from
 import { APRIORI, FASTLANE, KINTSU, MAGMA, ERC20_ABI, ERC4626_ABI, MORPHO_VAULTS, NEVERLAND, NEVERLAND_ORACLE, NEVERLAND_RESERVES, NEVERLAND_BORROW_RESERVES, CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS, CURVANCE_BORROW_ABI, KURU_VAULTS, KURU_VAULT_ABI, KURU_MARGIN_ACCOUNT, TOKENS, CLOBER_LV, CLOBER_POOLS, UNISWAP_V2_ROUTER, UNISWAP_V2_PAIR_ABI, UNISWAP_V2_POOLS, UNISWAP_V3_NPM, UNISWAP_V3_POOL_ABI, UNISWAP_V3_POOLS, UNISWAP_V4_POSITION_MANAGER, UNISWAP_V4_STATE_VIEW, UNISWAP_V4_POOLS, PERMIT2, PANCAKESWAP_V3_NPM, PANCAKESWAP_V3_POOL_ABI, PANCAKESWAP_V3_POOLS } from '@/lib/contracts'
 import { addLiquidity, CHAIN_IDS } from '@clober/v2-sdk'
 import { saveV4TokenId } from '@/lib/v4positions'
+import { useCurvanceLending, useCurvanceBorrow } from '@/lib/curvance-sdk'
+import Decimal from 'decimal.js'
 
 const NEXT_ID_ABI = [{ name: 'nextTokenId', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint256' }] }] as const
 
@@ -637,295 +639,413 @@ function NeverlandBorrowFlow({ pool, address }: { pool: BorrowingPool; address?:
   )
 }
 
-// ── Curvance lending flow (ERC4626: approve colAsset → deposit into colCToken) ──
-// Deposit = supply COLLATERAL (left side of pair, e.g. shMON in shMON/WMON)
+// ── Curvance lending flow — via Official Curvance SDK ─────────────────────────
+// SDK handles oracle updates, approval checks, and correct flow automatically.
+// depositAsCollateral = deposit + post as collateral in 1 tx (correct Curvance flow).
+// redeemCollateral = remove from collateral + redeem underlying in 1 tx.
+type CurvanceLendingTxState = 'idle' | 'approving' | 'depositing' | 'withdrawing' | 'success' | 'error'
+
 function CurvanceLendingFlow({ pool, address }: { pool: LendingPool; address?: string }) {
-  const [amount, setAmount] = useState('')
+  const [amount, setAmount]       = useState('')
+  const [tab, setTab]             = useState<'deposit' | 'withdraw'>('deposit')
+  const [txState, setTxState]     = useState<CurvanceLendingTxState>('idle')
+  const [txHash, setTxHash]       = useState<string>()
+  const [txError, setTxError]     = useState<string>()
+
   const info = CURVANCE_MARKETS[pool.id]
+
+  // SDK hook — always called (hooks must not be conditional)
+  const { token, loading: sdkLoading, error: sdkError, refresh } = useCurvanceLending(
+    info?.colCToken ?? '0x0000000000000000000000000000000000000001'
+  )
+
   if (!info) return <p className="text-xs text-slate-500 text-center py-4">Market config not found for {pool.id}</p>
+  if (!address) return <p className="text-xs text-slate-500 text-center py-4">Connect wallet to deposit</p>
 
-  const { colCToken, colAsset, colDec, colSym } = info
-  const isNativeMON = colAsset.toLowerCase() === WMON_ADDR.toLowerCase()
-  const parsedAmt = amount && Number(amount) > 0 ? parseUnits(amount, colDec) : 0n
+  const { colSym, colDec } = info
 
-  // Native MON balance (for WMON col pools)
-  const { data: nativeBal } = useBalance({
-    address: address as `0x${string}` | undefined,
-    query: { enabled: !!address && isNativeMON },
-  })
+  // Balances from SDK user cache (populated after reloadUserData)
+  const walletBal    = token ? token.getUserUnderlyingBalance(false).toFixed(6) : undefined
+  const depositedBal = token ? token.getUserCollateralAssets().toFixed(6) : undefined
 
-  // ERC20 balance of col asset
-  const { data: erc20BalRaw } = useReadContract({
-    address: colAsset,
-    abi: ERC20_ABI,
-    functionName: 'balanceOf',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
-  })
+  const decimalAmt = amount && Number(amount) > 0 ? new Decimal(amount) : null
+  const isPending  = txState === 'approving' || txState === 'depositing' || txState === 'withdrawing'
+  const isSuccess  = txState === 'success'
 
-  const displayBal = isNativeMON
-    ? (nativeBal ? (Number(nativeBal.value) / 10 ** nativeBal.decimals).toString() : undefined)
-    : (erc20BalRaw !== undefined ? (Number(erc20BalRaw) / 10 ** colDec).toString() : undefined)
+  function resetTx() {
+    setTxState('idle')
+    setTxHash(undefined)
+    setTxError(undefined)
+  }
 
-  const { data: allowance } = useReadContract({
-    address: colAsset,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [address as `0x${string}`, colCToken],
-    query: { enabled: !!address },
-  })
-
-  const isApproved = parsedAmt > 0n && (allowance ?? 0n) >= parsedAmt
-  const hasSufficientWMON = (erc20BalRaw ?? 0n) >= parsedAmt
-
-  const currentStep = isNativeMON
-    ? (!hasSufficientWMON ? 1 : !isApproved ? 2 : 3)
-    : (!isApproved ? 1 : 2)
-
-  const wrapWrite    = useWriteContract()
-  const wrapTx       = useWaitForTransactionReceipt({ hash: wrapWrite.data })
-  const approveWrite = useWriteContract()
-  const approveTx    = useWaitForTransactionReceipt({ hash: approveWrite.data })
-  const depositWrite = useWriteContract()
-  const depositTx    = useWaitForTransactionReceipt({ hash: depositWrite.data })
-
-  const isSigning = wrapWrite.isPending || approveWrite.isPending || depositWrite.isPending
-  const isWaiting = wrapTx.isLoading   || approveTx.isLoading   || depositTx.isLoading
-  const isPending = isSigning || isWaiting
-  const isSuccess = depositTx.isSuccess
-  const txHash    = depositWrite.data ?? approveWrite.data ?? wrapWrite.data
-  const error     = wrapWrite.error ?? wrapTx.error ?? approveWrite.error ?? approveTx.error ?? depositWrite.error ?? depositTx.error
-
-  function handleAction() {
-    if (!address || parsedAmt === 0n || isPending) return
-    const addr = address as `0x${string}`
-    if (isNativeMON && currentStep === 1) {
-      wrapWrite.writeContract({ address: WMON_ADDR, abi: WMON_DEPOSIT_ABI, functionName: 'deposit', value: parsedAmt })
-    } else if (currentStep === (isNativeMON ? 2 : 1)) {
-      approveWrite.writeContract({ address: colAsset, abi: ERC20_ABI, functionName: 'approve', args: [colCToken, parsedAmt] })
-    } else {
-      depositWrite.writeContract({ address: colCToken, abi: ERC4626_ABI, functionName: 'deposit', args: [parsedAmt, addr] })
+  async function handleDeposit() {
+    if (!token || !decimalAmt || isPending) return
+    resetTx()
+    try {
+      // Check ERC20 allowance; approve if needed before depositAsCollateral (SDK throws if not approved)
+      const amtBig = parseUnits(amount, colDec)
+      const currentAllowance = await token.getAllowance(token.address)
+      if (currentAllowance < amtBig) {
+        setTxState('approving')
+        const approveTx = await token.approveUnderlying(decimalAmt)
+        setTxHash(approveTx.hash)
+        await approveTx.wait()
+      }
+      setTxState('depositing')
+      // depositAsCollateral: deposit + post as collateral in 1 tx (correct Curvance flow)
+      const depositTx = await token.depositAsCollateral(decimalAmt)
+      setTxHash(depositTx.hash)
+      await depositTx.wait()
+      setTxState('success')
+      setAmount('')
+      refresh()
+    } catch (e: any) {
+      setTxError((e as Error).message?.split('\n')[0]?.slice(0, 120))
+      setTxState('error')
     }
   }
 
-  const displayToken = isNativeMON ? 'MON' : colSym
-  const steps = isNativeMON
-    ? ['Wrap MON', 'Approve WMON', 'Deposit WMON']
-    : [`Approve ${colSym}`, `Deposit ${colSym}`]
-
-  const btnLabel = isSuccess     ? `✓ Deposited ${amount} ${displayToken}`
-    : isSigning                  ? 'Confirm in wallet…'
-    : isWaiting                  ? 'Transaction pending…'
-    : isNativeMON && currentStep === 1 ? 'Wrap MON → WMON'
-    : isNativeMON && currentStep === 2 ? 'Approve WMON'
-    : isNativeMON && currentStep === 3 ? 'Deposit WMON'
-    : currentStep === 1          ? `Approve ${colSym}`
-                                 : `Deposit ${colSym}`
+  async function handleWithdraw() {
+    if (!token || !decimalAmt || isPending) return
+    resetTx()
+    try {
+      setTxState('withdrawing')
+      // redeemCollateral: remove from collateral + redeem in 1 tx (no separate approval needed)
+      const tx = await token.redeemCollateral(decimalAmt)
+      setTxHash(tx.hash)
+      await tx.wait()
+      setTxState('success')
+      setAmount('')
+      refresh()
+    } catch (e: any) {
+      setTxError((e as Error).message?.split('\n')[0]?.slice(0, 120))
+      setTxState('error')
+    }
+  }
 
   return (
     <div className="space-y-4">
-      <AmountInput label="You deposit (collateral)" token={displayToken} value={amount} onChange={setAmount} max={displayBal} />
-      <div className="flex justify-between text-xs px-0.5">
-        <span className="text-slate-500">Deposit APY</span>
-        <span className="text-emerald-400 font-semibold">{pool.apy.toFixed(2)}%</span>
+      {/* Deposit / Withdraw tabs */}
+      <div className="flex bg-[#0a1220] border border-[#1a2535] rounded-xl p-1 gap-1">
+        <button
+          onClick={() => { setTab('deposit'); resetTx() }}
+          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${tab === 'deposit' ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          Deposit
+        </button>
+        <button
+          onClick={() => { setTab('withdraw'); resetTx() }}
+          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${tab === 'withdraw' ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`}
+        >
+          Withdraw
+        </button>
       </div>
-      <Steps steps={steps} current={currentStep} />
-      {wrapTx.isSuccess && currentStep === 2 && (
-        <p className="text-center text-xs text-slate-600">Wrap confirmed · approve WMON next</p>
+
+      {sdkLoading && (
+        <p className="text-center text-xs text-slate-500 py-2">Loading Curvance market data…</p>
       )}
-      {approveTx.isSuccess && currentStep === (isNativeMON ? 3 : 2) && (
-        <p className="text-center text-xs text-slate-600">Approval confirmed · now deposit</p>
+      {!sdkLoading && sdkError && (
+        <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">{sdkError}</p>
       )}
-      <Btn label={btnLabel} onClick={handleAction} disabled={!address || parsedAmt === 0n || isPending || isSuccess} />
+
+      {!sdkLoading && !sdkError && tab === 'deposit' && (
+        <>
+          <AmountInput label="You deposit (collateral)" token={colSym} value={amount} onChange={setAmount} max={walletBal} />
+          <div className="flex justify-between text-xs px-0.5">
+            <span className="text-slate-500">Deposit APY</span>
+            <span className="text-emerald-400 font-semibold">{pool.apy.toFixed(2)}%</span>
+          </div>
+          <Btn
+            label={
+              isSuccess          ? `✓ Deposited ${amount} ${colSym}`
+              : txState === 'approving'  ? 'Approving…'
+              : txState === 'depositing' ? 'Depositing…'
+              : `Deposit ${colSym}`
+            }
+            onClick={handleDeposit}
+            disabled={!decimalAmt || isPending || isSuccess}
+          />
+        </>
+      )}
+
+      {!sdkLoading && !sdkError && tab === 'withdraw' && (
+        <>
+          {depositedBal && (
+            <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-2.5 flex justify-between text-xs">
+              <span className="text-slate-500">Deposited (collateral)</span>
+              <span className="text-white font-semibold">{depositedBal} {colSym}</span>
+            </div>
+          )}
+          <AmountInput label="You withdraw" token={colSym} value={amount} onChange={setAmount} max={depositedBal} />
+          <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 leading-relaxed">
+            Withdrawing collateral reduces your borrow capacity. Ensure health factor stays above 1.
+          </p>
+          <Btn
+            label={
+              isSuccess           ? `✓ Withdrawn ${amount} ${colSym}`
+              : txState === 'withdrawing' ? 'Processing…'
+              : `Withdraw ${colSym}`
+            }
+            onClick={handleWithdraw}
+            disabled={!decimalAmt || isPending || isSuccess}
+          />
+        </>
+      )}
+
       {txHash && (
         <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
           className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
           {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
         </a>
       )}
-      {error && (
+      {txState === 'error' && txError && (
         <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
-          {(error as Error).message?.split('\n')[0]?.slice(0, 120)}
+          {txError}
         </p>
       )}
     </div>
   )
 }
 
-// ── Curvance borrow flow ───────────────────────────────────────────────────────
-// Step 1: deposit collateral into colCToken (same as CurvanceLendingFlow)
-//   - WMON col: wrap MON → approve WMON → deposit WMON into colCToken
-//   - other col: approve colAsset → deposit into colCToken
-// Step 2: call loanCToken.borrow(amount) — Compound V2 style, no approve needed
+// ── Curvance borrow flow — via Official Curvance SDK ──────────────────────────
+// SDK reads on-chain state: colToken.getUserCollateral() > 0 → has collateral.
+// market.userRemainingCredit → accurate credit limit (0.1% buffer built-in).
+// borrowToken.borrow(Decimal) → sends tx with oracle price updates (no approval needed).
 function CurvanceBorrowFlow({ pool, address }: { pool: BorrowingPool; address?: string }) {
-  const [outerStep, setOuterStep] = useState<1 | 2>(1)
-  const [colAmt, setColAmt]       = useState('')
   const [borrowAmt, setBorrowAmt] = useState('')
+  const [txState, setTxState]    = useState<'idle' | 'pending' | 'success' | 'error'>('idle')
+  const [txHash, setTxHash]      = useState<string>()
+  const [txError, setTxError]    = useState<string>()
 
   const info = CURVANCE_BORROW_MARKETS[pool.id]
+
+  // SDK hook — always called unconditionally
+  const { colToken, loanToken, market, loading: sdkLoading, error: sdkError, refresh } = useCurvanceBorrow(
+    info?.colCToken  ?? '0x0000000000000000000000000000000000000001',
+    info?.loanCToken ?? '0x0000000000000000000000000000000000000002',
+  )
+
   if (!info) return <p className="text-xs text-slate-500 text-center py-4">Market config not found for {pool.id}</p>
+  if (!address) return <p className="text-xs text-slate-500 text-center py-4">Connect wallet to borrow</p>
 
-  const { colCToken, colAsset, colDec, colSym, loanCToken, loanDec, loanSym } = info
-  const isWMONcol = colAsset.toLowerCase() === WMON_ADDR.toLowerCase()
+  const { colSym, loanSym } = info
 
-  const parsedCol    = colAmt    && Number(colAmt)    > 0 ? parseUnits(colAmt,    colDec)  : 0n
-  const parsedBorrow = borrowAmt && Number(borrowAmt) > 0 ? parseUnits(borrowAmt, loanDec) : 0n
+  // Collateral + credit limit from SDK (requires user data loaded)
+  const hasCollateral  = colToken ? colToken.getUserCollateral(false).greaterThan(0) : false
+  const creditLimitUsd = market ? market.userRemainingCredit : null
 
-  // ── Step 1 hooks — collateral deposit ──
-  const { data: nativeBal } = useBalance({
-    address: address as `0x${string}` | undefined,
-    query: { enabled: !!address && isWMONcol },
-  })
-  const { data: erc20BalRaw } = useReadContract({
-    address: colAsset, abi: ERC20_ABI, functionName: 'balanceOf',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
-  })
-  const displayColBal = isWMONcol
-    ? (nativeBal ? (Number(nativeBal.value) / 10 ** nativeBal.decimals).toString() : undefined)
-    : (erc20BalRaw !== undefined ? (Number(erc20BalRaw) / 10 ** colDec).toString() : undefined)
+  const decimalAmt = borrowAmt && Number(borrowAmt) > 0 ? new Decimal(borrowAmt) : null
 
-  const { data: colAllowance } = useReadContract({
-    address: colAsset, abi: ERC20_ABI, functionName: 'allowance',
-    args: [address as `0x${string}`, colCToken],
-    query: { enabled: !!address },
-  })
-  const hasSufficientWMON = (erc20BalRaw ?? 0n) >= parsedCol
-  const isColApproved     = parsedCol > 0n && (colAllowance ?? 0n) >= parsedCol
-  const colInnerStep      = isWMONcol
-    ? (!hasSufficientWMON ? 1 : !isColApproved ? 2 : 3)
-    : (!isColApproved ? 1 : 2)
-
-  const wrapWrite    = useWriteContract()
-  const wrapTx       = useWaitForTransactionReceipt({ hash: wrapWrite.data })
-  const approveWrite = useWriteContract()
-  const approveTx    = useWaitForTransactionReceipt({ hash: approveWrite.data })
-  const depositWrite = useWriteContract()
-  const depositTx    = useWaitForTransactionReceipt({ hash: depositWrite.data })
-
-  const colIsSigning = wrapWrite.isPending || approveWrite.isPending || depositWrite.isPending
-  const colIsWaiting = wrapTx.isLoading    || approveTx.isLoading   || depositTx.isLoading
-  const colIsPending = colIsSigning || colIsWaiting
-  const colIsSuccess = depositTx.isSuccess
-  const colTxHash    = depositWrite.data ?? approveWrite.data ?? wrapWrite.data
-  const colError     = wrapWrite.error ?? wrapTx.error ?? approveWrite.error ?? approveTx.error ?? depositWrite.error ?? depositTx.error
-
-  function handleColAction() {
-    if (!address || parsedCol === 0n || colIsPending) return
-    const addr = address as `0x${string}`
-    if (isWMONcol && colInnerStep === 1) {
-      wrapWrite.writeContract({ address: WMON_ADDR, abi: WMON_DEPOSIT_ABI, functionName: 'deposit', value: parsedCol })
-    } else if (colInnerStep === (isWMONcol ? 2 : 1)) {
-      approveWrite.writeContract({ address: colAsset, abi: ERC20_ABI, functionName: 'approve', args: [colCToken, parsedCol] })
-    } else {
-      depositWrite.writeContract({ address: colCToken, abi: ERC4626_ABI, functionName: 'deposit', args: [parsedCol, addr] })
+  async function handleBorrow() {
+    if (!loanToken || !decimalAmt || txState === 'pending') return
+    setTxState('pending')
+    setTxHash(undefined)
+    setTxError(undefined)
+    try {
+      // SDK's borrow() sends oracle price updates automatically (Redstone multicall)
+      const tx = await loanToken.borrow(decimalAmt)
+      setTxHash(tx.hash)
+      await tx.wait()
+      setTxState('success')
+      setBorrowAmt('')
+      refresh()
+    } catch (e: any) {
+      setTxError((e as Error).message?.split('\n')[0]?.slice(0, 120))
+      setTxState('error')
     }
   }
 
-  const colInnerSteps = isWMONcol
-    ? ['Wrap MON', 'Approve WMON', 'Deposit WMON']
-    : [`Approve ${colSym}`, `Deposit ${colSym}`]
+  if (sdkLoading) return (
+    <p className="text-center text-xs text-slate-500 py-4">Loading Curvance market data…</p>
+  )
 
-  const displayColToken = isWMONcol ? 'MON' : colSym
+  if (sdkError) return (
+    <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">{sdkError}</p>
+  )
 
-  const colBtnLabel = colIsSuccess           ? `✓ Deposited ${colAmt} ${displayColToken}`
-    : colIsSigning                           ? 'Confirm in wallet…'
-    : colIsWaiting                           ? 'Transaction pending…'
-    : isWMONcol && colInnerStep === 1        ? 'Wrap MON → WMON'
-    : isWMONcol && colInnerStep === 2        ? 'Approve WMON'
-    : isWMONcol && colInnerStep === 3        ? 'Deposit WMON'
-    : colInnerStep === 1                     ? `Approve ${colSym}`
-                                             : `Deposit ${colSym}`
-
-  // ── Step 2 hooks — borrow ──
-  const borrowWrite = useWriteContract()
-  const borrowTx    = useWaitForTransactionReceipt({ hash: borrowWrite.data })
-  const borIsSigning = borrowWrite.isPending
-  const borIsWaiting = borrowTx.isLoading
-  const borIsPending = borIsSigning || borIsWaiting
-  const borIsSuccess = borrowTx.isSuccess
-  const borTxHash    = borrowWrite.data
-  const borError     = borrowWrite.error ?? borrowTx.error
-
-  function handleBorrow() {
-    if (!address || parsedBorrow === 0n || borIsPending) return
-    borrowWrite.writeContract({ address: loanCToken, abi: CURVANCE_BORROW_ABI, functionName: 'borrow', args: [parsedBorrow] })
-  }
-
-  const outerSteps = [`Deposit ${displayColToken}`, `Borrow ${loanSym}`]
+  if (!hasCollateral) return (
+    <div className="space-y-4">
+      <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-4 space-y-2">
+        <p className="text-sm font-semibold text-amber-400">No {colSym} collateral found</p>
+        <p className="text-xs text-slate-400 leading-relaxed">
+          Deposit {colSym} into the Curvance lending pool first to create an eligible position,
+          then return here to borrow.
+        </p>
+      </div>
+      <a
+        href="https://monad.curvance.com"
+        target="_blank"
+        rel="noopener noreferrer"
+        className="flex items-center justify-center gap-1.5 w-full rounded-xl py-3 text-sm font-semibold
+          bg-[#1a2535] text-slate-300 hover:text-white border border-[#2a3545] hover:border-[#CC3BFF]/40 transition-all"
+      >
+        Go to Curvance ↗
+      </a>
+    </div>
+  )
 
   return (
     <div className="space-y-4">
-      <Steps steps={outerSteps} current={outerStep} />
+      <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-2.5 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <span className="text-emerald-400 text-sm">✓</span>
+          <span className="text-xs text-emerald-400 font-medium">{colSym} collateral active</span>
+        </div>
+        {creditLimitUsd && creditLimitUsd.greaterThan(0) && (
+          <span className="text-xs text-slate-400">
+            Credit: <span className="text-white font-semibold">${creditLimitUsd.toFixed(2)}</span>
+          </span>
+        )}
+      </div>
+      <AmountInput label="Amount to borrow" token={loanSym} value={borrowAmt} onChange={setBorrowAmt} />
+      <div className="flex justify-between text-xs px-0.5">
+        <span className="text-slate-500">Borrow APR</span>
+        <span className="text-rose-400 font-semibold">{pool.apy.toFixed(2)}%</span>
+      </div>
+      <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 leading-relaxed">
+        Curvance requires a minimum borrow of ~$10. Check Curvance app for your exact credit limit.
+      </p>
+      <Btn
+        label={
+          txState === 'success' ? `✓ Borrowed ${borrowAmt} ${loanSym}`
+          : txState === 'pending'  ? 'Processing…'
+          : `Borrow ${loanSym}`
+        }
+        onClick={handleBorrow}
+        disabled={!decimalAmt || txState === 'pending' || txState === 'success'}
+      />
+      {txHash && (
+        <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+          className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+          {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
+        </a>
+      )}
+      {txState === 'error' && txError && (
+        <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+          {txError}
+        </p>
+      )}
+    </div>
+  )
+}
 
-      {outerStep === 1 ? (
-        <>
-          <AmountInput label="Collateral to deposit" token={displayColToken} value={colAmt} onChange={setColAmt} max={displayColBal} />
-          <div className="flex justify-between text-xs px-0.5">
-            <span className="text-slate-500">Borrow APR</span>
-            <span className="text-rose-400 font-semibold">{pool.apy.toFixed(2)}%</span>
-          </div>
-          <Steps steps={colInnerSteps} current={colInnerStep} />
-          {wrapTx.isSuccess && colInnerStep === 2 && (
-            <p className="text-center text-xs text-slate-600">Wrap confirmed · approve WMON next</p>
-          )}
-          {approveTx.isSuccess && colInnerStep === (isWMONcol ? 3 : 2) && (
-            <p className="text-center text-xs text-slate-600">Approval confirmed · now deposit</p>
-          )}
-          <Btn label={colBtnLabel} onClick={handleColAction} disabled={!address || parsedCol === 0n || colIsPending || colIsSuccess} />
-          {colIsSuccess && (
-            <Btn label={`Next → Borrow ${loanSym}`} onClick={() => setOuterStep(2)} disabled={false} />
-          )}
-          {colTxHash && (
-            <a href={`https://monadexplorer.com/tx/${colTxHash}`} target="_blank" rel="noopener noreferrer"
-              className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
-              {colTxHash.slice(0, 20)}…{colTxHash.slice(-8)} ↗
-            </a>
-          )}
-          {colError && (
-            <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
-              {(colError as Error).message?.split('\n')[0]?.slice(0, 120)}
-            </p>
-          )}
-        </>
+// ── Curvance repay flow ────────────────────────────────────────────────────────
+// Reads loanCToken.debtBalance(wallet) → exact amount to repay (no maxUint, no 0).
+// Step 1: approve loanAsset to loanCToken with 0.2% buffer (covers interest accrual).
+// Step 2: loanCToken.repay(debtRaw) — exact amount verified from real on-chain tx.
+export function CurvanceRepayFlow({ pool, address }: { pool: BorrowingPool; address?: string }) {
+  const market = CURVANCE_BORROW_MARKETS[pool.id]
+
+  const loanCToken = market?.loanCToken ?? ('0x0000000000000000000000000000000000000001' as `0x${string}`)
+  const loanDec    = market?.loanDec    ?? 18
+  const loanSym    = market?.loanSym    ?? '?'
+
+  // Get the ERC20 address of the loan token (ERC4626 standard on loanCToken)
+  const { data: loanAsset } = useReadContract({
+    address: loanCToken,
+    abi: CURVANCE_BORROW_ABI,
+    functionName: 'asset',
+    query: { enabled: !!market },
+  })
+
+  // Current outstanding debt
+  const { data: debtRaw } = useReadContract({
+    address: loanCToken,
+    abi: CURVANCE_BORROW_ABI,
+    functionName: 'debtBalance',
+    args: [address as `0x${string}`],
+    query: { enabled: !!address && !!market },
+  })
+
+  // 0.2% buffer over debt to cover interest accrual between read and tx
+  const approveAmt = debtRaw != null ? debtRaw * 1002n / 1000n : 0n
+
+  // Check existing allowance
+  const { data: allowance } = useReadContract({
+    address: loanAsset,
+    abi: ERC20_ABI,
+    functionName: 'allowance',
+    args: [address as `0x${string}`, loanCToken],
+    query: { enabled: !!address && !!loanAsset },
+  })
+
+  const approveWrite = useWriteContract()
+  const approveTx    = useWaitForTransactionReceipt({ hash: approveWrite.data })
+  const repayWrite   = useWriteContract()
+  const repayTx      = useWaitForTransactionReceipt({ hash: repayWrite.data })
+
+  if (!market) return <p className="text-xs text-slate-500 text-center py-4">Market config not found for {pool.id}</p>
+
+  const isApproved = debtRaw != null && debtRaw > 0n && (allowance ?? 0n) >= approveAmt
+  const innerStep  = isApproved ? 2 : 1
+
+  const isSigning  = approveWrite.isPending || repayWrite.isPending
+  const isWaiting  = approveTx.isLoading    || repayTx.isLoading
+  const isPending  = isSigning || isWaiting
+  const isSuccess  = repayTx.isSuccess
+  const txHash     = repayWrite.data ?? approveWrite.data
+  const txError    = approveWrite.error ?? approveTx.error ?? repayWrite.error ?? repayTx.error
+
+  function handleAction() {
+    if (!address || !loanAsset || debtRaw == null || debtRaw === 0n || isPending) return
+    if (innerStep === 1) {
+      approveWrite.writeContract({ address: loanAsset, abi: ERC20_ABI, functionName: 'approve', args: [loanCToken, approveAmt] })
+    } else {
+      repayWrite.writeContract({ address: loanCToken, abi: CURVANCE_BORROW_ABI, functionName: 'repay', args: [debtRaw] })
+    }
+  }
+
+  const debtDisplay = debtRaw != null
+    ? Number(formatUnits(debtRaw, loanDec)).toLocaleString(undefined, { maximumFractionDigits: 6 })
+    : null
+
+  const btnLabel = isSuccess  ? `✓ Repaid ${loanSym}`
+    : isSigning               ? 'Confirm in wallet…'
+    : isWaiting               ? 'Transaction pending…'
+    : innerStep === 1         ? `Approve ${loanSym}`
+                              : `Repay ${loanSym}`
+
+  return (
+    <div className="space-y-4">
+      <Steps steps={[`Approve ${loanSym}`, `Repay ${loanSym}`]} current={innerStep} />
+
+      {debtDisplay != null ? (
+        <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 flex items-center justify-between">
+          <span className="text-xs text-slate-500">Outstanding debt</span>
+          <span className="text-sm font-semibold text-rose-400">{debtDisplay} {loanSym}</span>
+        </div>
       ) : (
-        <>
-          <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 flex items-center justify-between">
-            <span className="text-xs text-slate-500">Collateral deposited</span>
-            <span className="text-sm font-semibold text-white">{colAmt} {displayColToken}</span>
-          </div>
-          <AmountInput label="Amount to borrow" token={loanSym} value={borrowAmt} onChange={setBorrowAmt} />
-          <div className="flex justify-between text-xs px-0.5">
-            <span className="text-slate-500">Borrow APR</span>
-            <span className="text-rose-400 font-semibold">{pool.apy.toFixed(2)}%</span>
-          </div>
-          <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 leading-relaxed">
-            Curvance requires a minimum borrow of ~$10. Amounts below this will revert.
-          </p>
-          <p className="text-xs text-slate-500 px-0.5 leading-relaxed">
-            Borrow limit depends on your collateral LTV. Check Curvance app for your exact capacity.
-          </p>
-          <Btn
-            label={borIsSuccess ? `✓ Borrowed ${borrowAmt} ${loanSym}` : borIsSigning ? 'Confirm in wallet…' : borIsWaiting ? 'Transaction pending…' : `Borrow ${loanSym}`}
-            onClick={handleBorrow}
-            disabled={!address || parsedBorrow === 0n || borIsPending || borIsSuccess}
-          />
-          {borTxHash && (
-            <a href={`https://monadexplorer.com/tx/${borTxHash}`} target="_blank" rel="noopener noreferrer"
-              className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
-              {borTxHash.slice(0, 20)}…{borTxHash.slice(-8)} ↗
-            </a>
-          )}
-          {borError && (
-            <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
-              {(borError as Error).message?.split('\n')[0]?.slice(0, 120)}
-            </p>
-          )}
-          <button type="button" onClick={() => setOuterStep(1)}
-            className="w-full text-xs text-slate-600 hover:text-slate-400 transition-colors py-1">
-            ← Back to deposit collateral
-          </button>
-        </>
+        <div className="text-xs text-slate-500 text-center py-2">Loading debt balance…</div>
+      )}
+
+      {approveTx.isSuccess && innerStep === 2 && (
+        <p className="text-center text-xs text-slate-600">Approval confirmed · ready to repay</p>
+      )}
+
+      <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 leading-relaxed">
+        Approval includes a 0.2% buffer to cover accrued interest before tx confirms.
+      </p>
+
+      <Btn
+        label={btnLabel}
+        onClick={handleAction}
+        disabled={!address || !loanAsset || debtRaw == null || debtRaw === 0n || isPending || isSuccess}
+      />
+
+      {isSuccess && (
+        <p className="text-xs text-emerald-400 text-center">Debt repaid in full.</p>
+      )}
+
+      {txHash && (
+        <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+          className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+          {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
+        </a>
+      )}
+      {txError && (
+        <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+          {(txError as Error).message?.split('\n')[0]?.slice(0, 120)}
+        </p>
       )}
     </div>
   )

@@ -14,11 +14,11 @@ import {
   UNISWAP_V3_NPM, UNISWAP_V3_POOL_ABI, UNISWAP_V3_POOLS,
   UNISWAP_V4_POSITION_MANAGER, UNISWAP_V4_STATE_VIEW, UNISWAP_V4_POOLS, PERMIT2,
   PANCAKESWAP_V3_NPM, PANCAKESWAP_V3_POOL_ABI, PANCAKESWAP_V3_POOLS,
-  CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS,
+  CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS, CURVANCE_BORROW_ABI,
 } from '@/lib/contracts'
 import {
   AmountInput, Steps, Btn,
-  LSTFlow, LendingFlow, BorrowFlow, KuruVaultFlow, CloberFlow, UniswapV2Flow,
+  LSTFlow, LendingFlow, BorrowFlow, KuruVaultFlow, CloberFlow, UniswapV2Flow, CurvanceRepayFlow,
   priceToTick, snapTick, v3Amount1FromAmount0, v3Amount0FromAmount1, capitalMultiplier,
   V3_RANGE_PRESETS, computeV4Liquidity, encodeV4UnlockData, PROTOCOL_BG, LST_RECEIPT,
 } from '@/components/DepositModal'
@@ -1374,37 +1374,79 @@ function SimplePageLayout({ pool, address }: { pool: Pool; address?: string }) {
   const lst = pool as LiquidStakingPool
   const action = pool.type === 'borrowing' ? 'borrow' : 'deposit'
 
+  const isCurvanceBorrow = pool.type === 'borrowing' && pool.protocol === 'Curvance'
+  const [showRepay, setShowRepay] = useState(false)
+  const curvanceMarket = CURVANCE_BORROW_MARKETS[pool.id]
+
+  // Read outstanding debt for Curvance borrow pools
+  const { data: debtRaw } = useReadContract({
+    address: curvanceMarket?.loanCToken,
+    abi: CURVANCE_BORROW_ABI,
+    functionName: 'debtBalance',
+    args: [address as `0x${string}`],
+    query: { enabled: isCurvanceBorrow && !!address && !!curvanceMarket },
+  })
+  const hasDebt = isCurvanceBorrow && debtRaw != null && debtRaw > 0n
+
   return (
-    <div className="grid md:grid-cols-[280px_1fr] gap-6">
-      {/* Left: pool info */}
-      <div className="bg-[#0d1520] border border-[#1a2535] rounded-2xl p-5">
-        <PoolInfoPanel pool={pool} />
-      </div>
-
-      {/* Right: flow form */}
-      <div className="bg-[#0d1520] border border-[#1a2535] rounded-2xl p-5 space-y-4">
-        <p className="text-sm font-semibold text-white capitalize">{action}</p>
-
-        {pool.status === 'full' && pool.protocol !== 'Curvance' && (
-          <div className="bg-slate-500/10 border border-slate-500/20 rounded-xl px-4 py-3 text-xs text-slate-400 leading-relaxed">
-            This pool is currently at capacity — no new deposits are accepted.
+    <div className="space-y-4">
+      {/* YOUR POSITION — only shown for Curvance borrow pools when debt exists */}
+      {hasDebt && curvanceMarket && (
+        <div className="bg-[#0d1520] border border-[#1a2535] rounded-2xl px-5 py-4 flex items-center justify-between">
+          <div>
+            <p className="text-xs text-slate-500 mb-1">Your Position</p>
+            <p className="text-sm font-semibold text-rose-400">
+              {Number(formatUnits(debtRaw!, curvanceMarket.loanDec)).toLocaleString(undefined, { maximumFractionDigits: 6 })} {curvanceMarket.loanSym} debt
+            </p>
           </div>
-        )}
+          <button
+            type="button"
+            onClick={() => setShowRepay(s => !s)}
+            className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors ${
+              showRepay
+                ? 'bg-[#1a2535] text-slate-300 hover:bg-[#232f42]'
+                : 'bg-rose-600 hover:bg-rose-500 text-white'
+            }`}
+          >
+            {showRepay ? '← Borrow' : 'Repay'}
+          </button>
+        </div>
+      )}
 
-        <WalletSection action={action} />
+      <div className="grid md:grid-cols-[280px_1fr] gap-6">
+        {/* Left: pool info */}
+        <div className="bg-[#0d1520] border border-[#1a2535] rounded-2xl p-5">
+          <PoolInfoPanel pool={pool} />
+        </div>
 
-        {pool.type === 'liquid_staking' && <LSTFlow pool={lst} address={address} />}
-        {pool.type === 'lending' && <LendingFlow pool={lending} address={address} />}
-        {pool.type === 'borrowing' && <BorrowFlow pool={borrowing} address={address} />}
-        {pool.type === 'lp' && pool.protocol === 'Kuru' && pool.id.startsWith('kuru-vault-') && (
-          <KuruVaultFlow pool={lp} address={address} />
-        )}
-        {pool.type === 'lp' && pool.protocol === 'Clober' && (
-          <CloberFlow pool={lp} address={address} />
-        )}
-        {pool.type === 'lp' && pool.protocol === 'Uniswap' && pool.id.startsWith('uniswap-v2-') && (
-          <UniswapV2Flow pool={lp} address={address} />
-        )}
+        {/* Right: flow form */}
+        <div className="bg-[#0d1520] border border-[#1a2535] rounded-2xl p-5 space-y-4">
+          <p className="text-sm font-semibold text-white capitalize">
+            {showRepay ? 'repay' : action}
+          </p>
+
+          {pool.status === 'full' && pool.protocol !== 'Curvance' && !showRepay && (
+            <div className="bg-slate-500/10 border border-slate-500/20 rounded-xl px-4 py-3 text-xs text-slate-400 leading-relaxed">
+              This pool is currently at capacity — no new deposits are accepted.
+            </div>
+          )}
+
+          <WalletSection action={showRepay ? 'repay' : action} />
+
+          {pool.type === 'liquid_staking' && <LSTFlow pool={lst} address={address} />}
+          {pool.type === 'lending' && <LendingFlow pool={lending} address={address} />}
+          {pool.type === 'borrowing' && !showRepay && <BorrowFlow pool={borrowing} address={address} />}
+          {pool.type === 'borrowing' && showRepay && <CurvanceRepayFlow pool={borrowing} address={address} />}
+          {pool.type === 'lp' && pool.protocol === 'Kuru' && pool.id.startsWith('kuru-vault-') && (
+            <KuruVaultFlow pool={lp} address={address} />
+          )}
+          {pool.type === 'lp' && pool.protocol === 'Clober' && (
+            <CloberFlow pool={lp} address={address} />
+          )}
+          {pool.type === 'lp' && pool.protocol === 'Uniswap' && pool.id.startsWith('uniswap-v2-') && (
+            <UniswapV2Flow pool={lp} address={address} />
+          )}
+        </div>
       </div>
     </div>
   )

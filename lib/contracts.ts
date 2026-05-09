@@ -262,6 +262,27 @@ export const CURVANCE_BORROW_ABI = [
     inputs:  [{ name: 'borrowAmount', type: 'uint256' }],
     outputs: [{ name: '', type: 'uint256' }],
   },
+  {
+    name: 'debtBalance',
+    type: 'function',
+    stateMutability: 'view',
+    inputs:  [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'repay',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs:  [{ name: 'assets', type: 'uint256' }],
+    outputs: [],
+  },
+  {
+    name: 'asset',
+    type: 'function',
+    stateMutability: 'view',
+    inputs:  [],
+    outputs: [{ name: '', type: 'address' }],
+  },
 ] as const
 
 export const CURVANCE_BORROW_MARKETS: Record<string, {

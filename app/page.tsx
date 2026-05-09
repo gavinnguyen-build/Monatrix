@@ -1,13 +1,18 @@
 import { PoolTable } from '@/components/PoolTable'
-import type { Pool, LPPool } from '@/types'
+import { supabase } from '@/lib/supabase'
+import { fromRow } from '@/lib/normalize'
+import type { Pool, LPPool, PoolRow } from '@/types'
 
 async function getPools(): Promise<Pool[]> {
   try {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000'
-    const res = await fetch(`${baseUrl}/api/pools`, { cache: 'no-store' })
-    if (!res.ok) return []
-    return res.json()
-  } catch {
+    const { data, error } = await supabase
+      .from('pools')
+      .select('*')
+      .order('tvl', { ascending: false })
+    if (error) { console.error('[Page] Supabase error:', error); return [] }
+    return (data as PoolRow[]).map(fromRow)
+  } catch (e) {
+    console.error('[Page] getPools failed:', e)
     return []
   }
 }
