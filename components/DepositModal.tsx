@@ -659,6 +659,18 @@ function CurvanceLendingFlow({ pool, address }: { pool: LendingPool; address?: s
     info?.colCToken ?? '0x0000000000000000000000000000000000000001'
   )
 
+  // Bidirectional check: if user has collateral on the opposite side of this market,
+  // block deposit to prevent creating a same-market loop (Curvance protocol restriction).
+  // This check is market-specific — the user can still deposit the same token in other markets.
+  const { data: oppBalance } = useReadContract({
+    address: info?.oppColCToken ?? '0x0000000000000000000000000000000000000001',
+    abi: ERC20_ABI,
+    functionName: 'balanceOf',
+    args: [address as `0x${string}`],
+    query: { enabled: !!address && !!info?.oppColCToken },
+  })
+  const hasOppCollateral = !!info?.oppColCToken && (oppBalance ?? 0n) > 0n
+
   if (!info) return <p className="text-xs text-slate-500 text-center py-4">Market config not found for {pool.id}</p>
   if (!address) return <p className="text-xs text-slate-500 text-center py-4">Connect wallet to deposit</p>
 
@@ -750,6 +762,13 @@ function CurvanceLendingFlow({ pool, address }: { pool: LendingPool; address?: s
 
       {!sdkLoading && !sdkError && tab === 'deposit' && (
         <>
+          {hasOppCollateral && (
+            <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 leading-relaxed">
+              You already have <strong>{info.oppColSym}</strong> deposited as collateral in this market.
+              Curvance does not allow depositing both sides of a bidirectional pair in the same market.
+              Withdraw your <strong>{info.oppColSym}</strong> first from the {info.oppColSym}/{colSym} pool.
+            </p>
+          )}
           <AmountInput label="You deposit (collateral)" token={colSym} value={amount} onChange={setAmount} max={walletBal} />
           <div className="flex justify-between text-xs px-0.5">
             <span className="text-slate-500">Deposit APY</span>
@@ -757,13 +776,13 @@ function CurvanceLendingFlow({ pool, address }: { pool: LendingPool; address?: s
           </div>
           <Btn
             label={
-              isSuccess          ? `✓ Deposited ${amount} ${colSym}`
+              isSuccess                  ? `✓ Deposited ${amount} ${colSym}`
               : txState === 'approving'  ? 'Approving…'
               : txState === 'depositing' ? 'Depositing…'
               : `Deposit ${colSym}`
             }
             onClick={handleDeposit}
-            disabled={!decimalAmt || isPending || isSuccess}
+            disabled={!decimalAmt || isPending || isSuccess || hasOppCollateral}
           />
         </>
       )}

@@ -224,10 +224,12 @@ export const NEVERLAND_BORROW_RESERVES: Record<string, { asset: `0x${string}`; d
 // "loan" side — those are marked with correct addresses below.
 // Addresses from Reader.getDynamicMarketData() + on-chain asset() calls (Apr 2026)
 export const CURVANCE_MARKETS: Record<string, {
-  colCToken:  `0x${string}`   // cToken to deposit collateral into
-  colAsset:   `0x${string}`   // underlying ERC20 to approve
-  colDec:     number
-  colSym:     string          // display name (matches Curvance UI "Collateral" column)
+  colCToken:    `0x${string}`   // cToken to deposit collateral into
+  colAsset:     `0x${string}`   // underlying ERC20 to approve
+  colDec:       number
+  colSym:       string          // display name (matches Curvance UI "Collateral" column)
+  oppColCToken?: `0x${string}`  // bidirectional markets only: opposite side's cToken
+  oppColSym?:   string          // bidirectional markets only: opposite side's symbol
 }> = {
   'curvance-mubond-ausd':   { colCToken: '0x92EE4b4d33Dc61bd93a88601F29131B08aCedBF1', colAsset: '0x336D414754967C6682B5A665C7DAF6F1409E63e8', colDec: 18, colSym: 'muBOND'   },
   'curvance-loaznd-ausd':   { colCToken: '0xf7a6AB4aF86966C141D3C5633DF658E5CDb0a735', colAsset: '0x9c82eB49B51F7Dc61e22Ff347931CA32aDc6cd90', colDec: 18, colSym: 'loAZND'   },
@@ -242,12 +244,19 @@ export const CURVANCE_MARKETS: Record<string, {
   'curvance-wsrusd-ausd':   { colCToken: '0x251B67Ae7e90fDc6a7B080Ee601913A8B2746A28', colAsset: '0x4809010926aec940b550D34a46A52739f996D75D', colDec: 18, colSym: 'wsrUSD'   },
   'curvance-yzm-ausd':      { colCToken: '0x8626B8f4F64CAeee9549Af8ebbFA591A7425e5ba', colAsset: '0x3a2c4aAae6776dC1c31316De559598f2f952E2cB', colDec: 6,  colSym: 'YZM'      },
   'curvance-vusd-ausd':     { colCToken: '0x42369AFe4bA4225b800b8024Acc5F14f42A3836C', colAsset: '0x8d3F9f9Eb2f5E8B48EFBB4074440D1E2A34Bc365', colDec: 6,  colSym: 'vUSD'     },
-  // Bidirectional markets — Curvance's "Collateral" is the loan side in our adapter
-  'curvance-ebtc-wbtc':     { colCToken: '0xdB3e888c3b50771821226d30Ab6eC14eB5ba85bA', colAsset: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', colDec: 8,  colSym: 'WBTC'     },
-  'curvance-wmon-ausd':     { colCToken: '0x6E182EB501800C555bd5E662E6D350D627F504D8', colAsset: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a', colDec: 6,  colSym: 'AUSD'     },
-  'curvance-wmon-usdc':     { colCToken: '0x8EE9FC28B8Da872c38A496e9dDB9700bb7261774', colAsset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', colDec: 6,  colSym: 'USDC'     },
-  'curvance-wbtc-usdc':     { colCToken: '0x7C9d4f1695C6282Da5e5509Aa51fC9fb417C6f1d', colAsset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', colDec: 6,  colSym: 'USDC'     },
-  'curvance-weth-usdc':     { colCToken: '0x21aDBb60a5fB909e7F1fB48aACC4569615CD97b5', colAsset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', colDec: 6,  colSym: 'USDC'     },
+  // Bidirectional markets — each has an oppColCToken for the reverse-direction deposit check
+  'curvance-ebtc-wbtc': { colCToken: '0xdB3e888c3b50771821226d30Ab6eC14eB5ba85bA', colAsset: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', colDec: 8,  colSym: 'WBTC', oppColCToken: '0x2840772E14fFbe337aB966727B7D1Dd09BDc76E4', oppColSym: 'eBTC'  },
+  'curvance-wmon-ausd': { colCToken: '0x6E182EB501800C555bd5E662E6D350D627F504D8', colAsset: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a', colDec: 6,  colSym: 'AUSD', oppColCToken: '0xE01d426B589c7834a5F6B20D7e992A705d3c22ED', oppColSym: 'WMON'  },
+  'curvance-wmon-usdc': { colCToken: '0x8EE9FC28B8Da872c38A496e9dDB9700bb7261774', colAsset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', colDec: 6,  colSym: 'USDC', oppColCToken: '0x1e240E30E51491546deC3aF16B0b4EAC8Dd110D4', oppColSym: 'WMON'  },
+  'curvance-wbtc-usdc': { colCToken: '0x7C9d4f1695C6282Da5e5509Aa51fC9fb417C6f1d', colAsset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', colDec: 6,  colSym: 'USDC', oppColCToken: '0x3D2Ff9F862D89Ba526a0fC166bD56ABe04EF28d5', oppColSym: 'WBTC'  },
+  'curvance-weth-usdc': { colCToken: '0x21aDBb60a5fB909e7F1fB48aACC4569615CD97b5', colAsset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', colDec: 6,  colSym: 'USDC', oppColCToken: '0x8Af00fbbb2601A8F7636EabbF6243B30BEA47D50', oppColSym: 'WETH'  },
+
+  // Reverse-direction entries for each bidirectional pair (deposit the "col" token)
+  'curvance-wbtc-ebtc': { colCToken: '0x2840772E14fFbe337aB966727B7D1Dd09BDc76E4', colAsset: '0xd691b0aFed67F96CEC28Ab6308Cbe5b2C103b7e9', colDec: 10, colSym: 'eBTC', oppColCToken: '0xdB3e888c3b50771821226d30Ab6eC14eB5ba85bA', oppColSym: 'WBTC'  },
+  'curvance-ausd-wmon': { colCToken: '0xE01d426B589c7834a5F6B20D7e992A705d3c22ED', colAsset: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', colDec: 18, colSym: 'WMON', oppColCToken: '0x6E182EB501800C555bd5E662E6D350D627F504D8', oppColSym: 'AUSD'  },
+  'curvance-usdc-wmon': { colCToken: '0x1e240E30E51491546deC3aF16B0b4EAC8Dd110D4', colAsset: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', colDec: 18, colSym: 'WMON', oppColCToken: '0x8EE9FC28B8Da872c38A496e9dDB9700bb7261774', oppColSym: 'USDC'  },
+  'curvance-usdc-wbtc': { colCToken: '0x3D2Ff9F862D89Ba526a0fC166bD56ABe04EF28d5', colAsset: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', colDec: 8,  colSym: 'WBTC', oppColCToken: '0x7C9d4f1695C6282Da5e5509Aa51fC9fb417C6f1d', oppColSym: 'USDC'  },
+  'curvance-usdc-weth': { colCToken: '0x8Af00fbbb2601A8F7636EabbF6243B30BEA47D50', colAsset: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242', colDec: 18, colSym: 'WETH', oppColCToken: '0x21aDBb60a5fB909e7F1fB48aACC4569615CD97b5', oppColSym: 'USDC'  },
 }
 
 // ── Curvance Borrow Markets ────────────────────────────────────────────────────
