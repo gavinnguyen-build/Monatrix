@@ -325,8 +325,8 @@ export async function fetchCurvancePools(): Promise<(LendingPool | BorrowingPool
   const results: (LendingPool | BorrowingPool)[] = []
   const now = new Date().toISOString()
 
-  // Borrow pools paused on Curvance and not shown in their UI
-  const BORROW_EXCLUDED = new Set(['curvance-aprmon-wmon-borrow'])
+  // Borrow pools explicitly excluded (e.g. permanently paused). Currently none.
+  const BORROW_EXCLUDED = new Set<string>([])
 
   for (const m of markets) {
     const [col, loan] = m.tokens
