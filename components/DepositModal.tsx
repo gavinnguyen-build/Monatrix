@@ -3,9 +3,9 @@
 import { useState, useEffect } from 'react'
 import { useAccount, useDisconnect, useBalance, useWriteContract, useWaitForTransactionReceipt, useReadContract, useSendTransaction, usePublicClient } from 'wagmi'
 import { ConnectModal } from '@/components/WalletButton'
-import { parseEther, parseUnits, formatUnits, encodeFunctionData, encodeAbiParameters } from 'viem'
+import { parseEther, parseUnits, formatUnits, encodeFunctionData, encodeAbiParameters, maxUint256 } from 'viem'
 import type { Pool, LendingPool, BorrowingPool, LiquidStakingPool, LPPool } from '@/types'
-import { APRIORI, FASTLANE, KINTSU, MAGMA, ERC20_ABI, ERC4626_ABI, MORPHO_VAULTS, NEVERLAND, NEVERLAND_ORACLE, NEVERLAND_RESERVES, NEVERLAND_BORROW_RESERVES, CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS, CURVANCE_BORROW_ABI, KURU_VAULTS, KURU_VAULT_ABI, KURU_MARGIN_ACCOUNT, TOKENS, CLOBER_LV, CLOBER_POOLS, UNISWAP_V2_ROUTER, UNISWAP_V2_PAIR_ABI, UNISWAP_V2_POOLS, UNISWAP_V3_NPM, UNISWAP_V3_POOL_ABI, UNISWAP_V3_POOLS, UNISWAP_V4_POSITION_MANAGER, UNISWAP_V4_STATE_VIEW, UNISWAP_V4_POOLS, PERMIT2, PANCAKESWAP_V3_NPM, PANCAKESWAP_V3_POOL_ABI, PANCAKESWAP_V3_POOLS } from '@/lib/contracts'
+import { APRIORI, FASTLANE, KINTSU, MAGMA, ERC20_ABI, ERC4626_ABI, MORPHO_VAULTS, NEVERLAND, NEVERLAND_ORACLE, NEVERLAND_DATA_PROVIDER, NEVERLAND_RESERVES, NEVERLAND_BORROW_RESERVES, CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS, CURVANCE_BORROW_ABI, KURU_VAULTS, KURU_VAULT_ABI, KURU_MARGIN_ACCOUNT, TOKENS, CLOBER_LV, CLOBER_POOLS, UNISWAP_V2_ROUTER, UNISWAP_V2_PAIR_ABI, UNISWAP_V2_POOLS, UNISWAP_V3_NPM, UNISWAP_V3_POOL_ABI, UNISWAP_V3_POOLS, UNISWAP_V4_POSITION_MANAGER, UNISWAP_V4_STATE_VIEW, UNISWAP_V4_POOLS, PERMIT2, PANCAKESWAP_V3_NPM, PANCAKESWAP_V3_POOL_ABI, PANCAKESWAP_V3_POOLS, UNISWAP_V3_SWAP_ROUTER, GMON_WMON_V3_POOL_ADDRESS } from '@/lib/contracts'
 import { addLiquidity, CHAIN_IDS } from '@clober/v2-sdk'
 import { saveV4TokenId } from '@/lib/v4positions'
 import { useCurvanceLending, useCurvanceBorrow } from '@/lib/curvance-sdk'
@@ -34,10 +34,18 @@ export const LST_RECEIPT: Record<string, string> = {
   Magma: 'gMON', Fastlane: 'shMON', Kintsu: 'sMON', Apriori: 'aprMON',
 }
 
+export const TOKEN_LOGO: Record<string, string> = {
+  MON:    '/logos/tokens/MON.jpg',
+  gMON:   '/logos/tokens/gMON.png',
+  shMON:  '/logos/tokens/shMON.png',
+  sMON:   '/logos/tokens/sMON.webp',
+  aprMON: '/logos/tokens/aprMon.png',
+}
+
 // ── Amount input ──────────────────────────────────────────────────────────────
-export function AmountInput({ label, token, value, onChange, max }: {
+export function AmountInput({ label, token, value, onChange, max, logo }: {
   label: string; token: string; value: string
-  onChange: (v: string) => void; max?: string
+  onChange: (v: string) => void; max?: string; logo?: string
 }) {
   return (
     <div>
@@ -62,9 +70,10 @@ export function AmountInput({ label, token, value, onChange, max }: {
           onChange={e => onChange(e.target.value)}
           className="flex-1 bg-transparent px-4 py-3 text-sm font-medium text-white placeholder-slate-600 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
         />
-        <span className="px-4 py-3 text-sm font-semibold text-slate-300 border-l border-[#1a2535] bg-[#0d1520] shrink-0">
-          {token}
-        </span>
+        <div className="flex items-center gap-1.5 px-4 py-3 border-l border-[#1a2535] bg-[#0d1520] shrink-0">
+          {logo && <img src={logo} alt={token} className="w-5 h-5 rounded-full object-cover" />}
+          <span className="text-sm font-semibold text-slate-300">{token}</span>
+        </div>
       </div>
     </div>
   )
@@ -122,15 +131,77 @@ export function Btn({ label, onClick, disabled }: {
 
 // ── LST Flow (1 step: deposit MON → receive receipt token) ────────────────────
 export function LSTFlow({ pool, address }: { pool: LiquidStakingPool; address?: string }) {
+  const [tab, setTab] = useState<'stake' | 'unstake'>('stake')
+  return (
+    <div className="space-y-4">
+      {/* Stake / Unstake tabs */}
+      <div className="flex rounded-xl overflow-hidden border border-[#1a2535]">
+        {(['stake', 'unstake'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`flex-1 py-2 text-sm font-semibold transition-colors capitalize ${
+              tab === t
+                ? 'bg-[#CC3BFF] text-white'
+                : 'bg-[#0a1220] text-slate-400 hover:text-slate-200'
+            }`}
+          >
+            {t === 'stake' ? 'Stake' : 'Unstake'}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'stake'
+        ? <LSTStakeTab pool={pool} address={address} />
+        : <LSTUnstakeTab pool={pool} address={address} />
+      }
+    </div>
+  )
+}
+
+function LSTStakeTab({ pool, address }: { pool: LiquidStakingPool; address?: string }) {
   const [amount, setAmount] = useState('')
   const { data: bal } = useBalance({ address: address as `0x${string}` | undefined })
   const receipt = LST_RECEIPT[pool.protocol] ?? pool.asset
   const balStr = bal ? (Number(bal.value) / 10 ** bal.decimals).toString() : undefined
 
-  // All 3 LST protocols use writeContract (proper contract call, not plain transfer)
-  const { writeContract, data: txHash, isPending: isSigning, error: writeError, reset } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess, error: receiptError } = useWaitForTransactionReceipt({ hash: txHash })
+  // Exchange rate: convertToShares(1e18) for ERC4626 protocols
+  const isKintsu = pool.protocol === 'Kintsu'
+  const { data: sharesPerMon } = useReadContract({
+    address: pool.protocol === 'Fastlane' ? FASTLANE.address
+      : pool.protocol === 'Magma' ? MAGMA.address
+      : APRIORI.address,
+    abi: pool.protocol === 'Fastlane' ? FASTLANE.abi
+      : pool.protocol === 'Magma' ? MAGMA.abi
+      : APRIORI.abi,
+    functionName: 'convertToShares',
+    args: [parseEther('1')],
+    query: { enabled: !isKintsu },
+  } as Parameters<typeof useReadContract>[0])
 
+  // Kintsu: derive from totalPooled / totalSupply
+  const { data: kintsuPooled } = useReadContract({
+    address: KINTSU.address, abi: KINTSU.abi, functionName: 'totalPooled',
+    query: { enabled: isKintsu },
+  })
+  const { data: kintsuSupply } = useReadContract({
+    address: KINTSU.address, abi: KINTSU.abi, functionName: 'totalSupply',
+    query: { enabled: isKintsu },
+  })
+
+  // Compute estimated shares to display
+  const parsedMon = amount && Number(amount) > 0 ? parseEther(amount) : 0n
+  let estimatedShares: bigint | null = null
+  if (parsedMon > 0n) {
+    if (isKintsu && kintsuPooled && kintsuSupply && (kintsuPooled as bigint) > 0n) {
+      estimatedShares = (parsedMon * (kintsuSupply as bigint)) / (kintsuPooled as bigint)
+    } else if (!isKintsu && sharesPerMon) {
+      estimatedShares = (parsedMon * (sharesPerMon as bigint)) / parseEther('1')
+    }
+  }
+
+  const { writeContract, data: txHash, isPending: isSigning, error: writeError } = useWriteContract()
+  const { isLoading: isConfirming, isSuccess, error: receiptError } = useWaitForTransactionReceipt({ hash: txHash })
   const isPending = isSigning || isConfirming
   const error = writeError ?? receiptError
 
@@ -138,91 +209,47 @@ export function LSTFlow({ pool, address }: { pool: LiquidStakingPool; address?: 
     if (!address || !amount || Number(amount) <= 0) return
     const value = parseEther(amount)
     const receiver = address as `0x${string}`
-
     if (pool.protocol === 'Fastlane') {
-      writeContract({
-        address: FASTLANE.address,
-        abi: FASTLANE.abi,
-        functionName: 'deposit',
-        args: [value, receiver],
-        value,
-      })
+      writeContract({ address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'deposit', args: [value, receiver], value })
     } else if (pool.protocol === 'Kintsu') {
-      writeContract({
-        address: KINTSU.address,
-        abi: KINTSU.abi,
-        functionName: 'deposit',
-        args: [0n, receiver],
-        value,
-      })
+      writeContract({ address: KINTSU.address, abi: KINTSU.abi, functionName: 'deposit', args: [0n, receiver], value })
     } else if (pool.protocol === 'Magma') {
-      writeContract({
-        address: MAGMA.address,
-        abi: MAGMA.abi,
-        functionName: 'depositMON',
-        args: [receiver, 0n], // referralId = 0
-        value,
-      })
+      writeContract({ address: MAGMA.address, abi: MAGMA.abi, functionName: 'depositMON', args: [receiver, 0n], value })
     } else if (pool.protocol === 'Apriori') {
-      writeContract({
-        address: APRIORI.address,
-        abi: APRIORI.abi,
-        functionName: 'deposit',
-        args: [value, receiver],
-        value,
-      })
+      writeContract({ address: APRIORI.address, abi: APRIORI.abi, functionName: 'deposit', args: [value, receiver], value })
     }
   }
 
-  const btnLabel = isSuccess
-    ? `✓ Deposited ${amount} MON`
-    : isSigning    ? 'Confirm in wallet…'
+  const btnLabel = isSuccess ? `✓ Staked ${amount} MON`
+    : isSigning ? 'Confirm in wallet…'
     : isConfirming ? 'Transaction pending…'
-    : 'Deposit MON'
+    : 'Stake MON'
 
   return (
     <div className="space-y-4">
-      <AmountInput
-        label="You deposit"
-        token="MON"
-        value={amount}
-        onChange={setAmount}
-        max={balStr}
-      />
-
+      <AmountInput label="You stake" token="MON" value={amount} onChange={setAmount} max={balStr} logo={TOKEN_LOGO.MON} />
       <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 flex items-center justify-between">
         <span className="text-xs text-slate-500">You receive</span>
-        <span className="text-sm font-semibold text-white">
-          {amount && Number(amount) > 0
-            ? `≈ ${Number(amount).toFixed(4)} ${receipt}`
-            : `— ${receipt}`}
-        </span>
+        <div className="flex items-center gap-1.5">
+          {TOKEN_LOGO[receipt] && <img src={TOKEN_LOGO[receipt]} alt={receipt} className="w-5 h-5 rounded-full object-cover" />}
+          <span className="text-sm font-semibold text-white">
+            {estimatedShares != null
+              ? `≈ ${Number(formatUnits(estimatedShares, 18)).toFixed(4)} ${receipt}`
+              : `— ${receipt}`}
+          </span>
+        </div>
       </div>
-
       <div className="flex justify-between text-xs px-0.5">
         <span className="text-slate-500">APY</span>
         <span className="text-emerald-400 font-semibold">{pool.apy.toFixed(2)}%</span>
       </div>
-
-      <Btn
-        label={btnLabel}
-        onClick={handleDeposit}
-        disabled={!address || !amount || Number(amount) <= 0 || isPending || isSuccess}
-      />
-
-      {/* Tx hash link */}
+      <Btn label={btnLabel} onClick={handleDeposit} disabled={!address || !amount || Number(amount) <= 0 || isPending || isSuccess} />
       {txHash && (
-        <a
-          href={`https://monadexplorer.com/tx/${txHash}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate"
-        >
+        <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+          className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
           {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
         </a>
       )}
-
-      {/* Error */}
       {error && (
         <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
           {(error as Error).message?.split('\n')[0]?.slice(0, 120)}
@@ -232,84 +259,1383 @@ export function LSTFlow({ pool, address }: { pool: LiquidStakingPool; address?: 
   )
 }
 
-// ── Morpho lending flow (ERC4626: approve → deposit) ─────────────────────────
-function MorphoFlow({ pool, address }: { pool: LendingPool; address?: string }) {
+function LSTUnstakeTab({ pool, address }: { pool: LiquidStakingPool; address?: string }) {
   const [amount, setAmount] = useState('')
-  const info = MORPHO_VAULTS[pool.id]
-  if (!info) return <p className="text-xs text-slate-500 text-center py-4">Vault config not found for {pool.id}</p>
+  const [magmaMode, setMagmaMode] = useState<'traditional' | 'pool'>('traditional')
+  const [magmaSubTab, setMagmaSubTab] = useState<'request' | 'claim'>('request')
+  const [fastlaneMode, setFastlaneMode] = useState<'traditional' | 'pool'>('traditional')
+  const [fastlaneSubTab, setFastlaneSubTab] = useState<'request' | 'claim'>('request')
+  const [kintsuSubTab, setKintsuSubTab] = useState<'request' | 'claim'>('request')
+  const [kintsuClaimingIdx, setKintsuClaimingIdx] = useState<number | null>(null)
+  const [kintsuSimResults, setKintsuSimResults] = useState<Map<number, boolean>>(new Map())
+  const [aprioriMode, setAprioriMode]   = useState<'traditional' | 'pool'>('traditional')
+  const [aprioriSubTab, setAprioriSubTab] = useState<'request' | 'claim'>('request')
+  const addr = address as `0x${string}` | undefined
+  const publicClient = usePublicClient()
+  const receipt = LST_RECEIPT[pool.protocol] ?? pool.asset
 
-  const { vault, asset: assetAddr, decimals } = info
-  const parsedAmt = amount && Number(amount) > 0 ? parseUnits(amount, decimals) : 0n
+  const fastlane = pool.protocol === 'Fastlane'
+  const kintsu   = pool.protocol === 'Kintsu'
+  const magma    = pool.protocol === 'Magma'
+  const apriori  = pool.protocol === 'Apriori'
 
-  // Token balance via balanceOf (wagmi v2 dropped token param from useBalance)
-  const { data: balRaw } = useReadContract({
-    address: assetAddr,
-    abi: ERC20_ABI,
+  // Read LST balance
+  const lstContract = fastlane ? FASTLANE : kintsu ? KINTSU : magma ? MAGMA : APRIORI
+  const { data: lstBal } = useReadContract({
+    address: lstContract.address,
+    abi: lstContract.abi,
     functionName: 'balanceOf',
-    args: [address as `0x${string}`],
-    query: { enabled: !!address },
+    args: addr ? [addr] : undefined,
+    query: { enabled: !!addr },
+  } as Parameters<typeof useReadContract>[0])
+  const lstBalStr = lstBal != null ? formatUnits(lstBal as bigint, 18) : undefined
+  // Floor to 6 decimal places (bigint math) to avoid round-up when user clicks MAX
+  const lstBalFloor = lstBal != null
+    ? formatUnits((lstBal as bigint) / 10n**12n * 10n**12n, 18)
+    : undefined
+
+  // When user clicks MAX, amount = lstBalFloor (floor-truncated).
+  // If parsedSharesRaw >= floor(lstBal) → treat as "use all" and pass exact lstBal to avoid dust.
+  // Also cap at lstBal for any over-entry.
+  const lstBalFloorRaw = lstBal != null ? (lstBal as bigint) / 10n**12n * 10n**12n : 0n
+  const parsedSharesRaw = amount && Number(amount) > 0 ? parseUnits(amount, 18) : 0n
+  const parsedShares = lstBal != null && parsedSharesRaw >= lstBalFloorRaw && lstBalFloorRaw > 0n
+    ? (lstBal as bigint)            // at or above floor-max → use full balance (no dust)
+    : parsedSharesRaw > (lstBal as bigint ?? 0n)
+      ? (lstBal as bigint)          // above balance → cap
+      : parsedSharesRaw
+
+  // ── Fastlane-specific reads ────────────────────────────────────────────────
+  // Pending traditional unstake for this wallet
+  const { data: unstakeRequest } = useReadContract({
+    address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'getUnstakeRequest',
+    args: addr ? [addr] : undefined,
+    query: { enabled: fastlane && !!addr },
+  } as Parameters<typeof useReadContract>[0])
+  const flPendingMon = unstakeRequest ? (unstakeRequest as [bigint, bigint])[0] : 0n
+  const flCompletionEpoch = unstakeRequest ? (unstakeRequest as [bigint, bigint])[1] : 0n
+  const flHasPending = flPendingMon > 0n
+
+  // Preview: traditional (no fee) — always read 1 shMON for rate display
+  const { data: flTraditionalRate1 } = useReadContract({
+    address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'previewUnstake',
+    args: [parseEther('1')],
+    query: { enabled: fastlane },
+  } as Parameters<typeof useReadContract>[0])
+  // Preview: traditional for entered amount
+  const { data: flTraditionalOut } = useReadContract({
+    address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'previewUnstake',
+    args: parsedShares > 0n ? [parsedShares] : undefined,
+    query: { enabled: fastlane && parsedShares > 0n },
+  } as Parameters<typeof useReadContract>[0])
+
+  // Preview: pool/atomic (with fee) — always read 1 shMON for rate display
+  const { data: flInstantRate1 } = useReadContract({
+    address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'previewRedeem',
+    args: [parseEther('1')],
+    query: { enabled: fastlane },
+  } as Parameters<typeof useReadContract>[0])
+  // Preview: pool/atomic for entered amount
+  const { data: flInstantOut } = useReadContract({
+    address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'previewRedeem',
+    args: parsedShares > 0n ? [parsedShares] : undefined,
+    query: { enabled: fastlane && parsedShares > 0n },
+  } as Parameters<typeof useReadContract>[0])
+
+  // Current atomic fee rate (RAY = 1e27)
+  const { data: flFeeRay } = useReadContract({
+    address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'getCurrentUnstakeFeeRateRay',
+    query: { enabled: fastlane },
+  } as Parameters<typeof useReadContract>[0])
+
+  // Derived display values for Fastlane
+  const flTradRate = flTraditionalRate1 ? (Number(flTraditionalRate1 as bigint) / 1e18).toFixed(4) : '—'
+  const flInstRate = flInstantRate1 ? (Number(flInstantRate1 as bigint) / 1e18).toFixed(4) : '—'
+  const flTradReceive = parsedShares > 0n && flTraditionalOut
+    ? (Number(flTraditionalOut as bigint) / 1e18).toFixed(5) : '—'
+  const flInstReceive = parsedShares > 0n && flInstantOut
+    ? (Number(flInstantOut as bigint) / 1e18).toFixed(5) : '—'
+  const flFeeAmt = parsedShares > 0n && flTraditionalOut && flInstantOut
+    ? ((Number(flTraditionalOut as bigint) - Number(flInstantOut as bigint)) / 1e18).toFixed(5)
+    : flFeeRay
+      ? (Number(flFeeRay as bigint) / 1e27 * 100).toFixed(3) + '%'
+      : '—'
+  const flYouReceiveDisplay = parsedShares > 0n
+    ? (fastlaneMode === 'traditional' ? flTradReceive : flInstReceive)
+    : '0'
+
+  // ── Kintsu-specific reads ─────────────────────────────────────────────────
+  // All pending unlock requests for wallet (UnlockRequest[])
+  const { data: kintsuRequests, refetch: refetchKintsuRequests } = useReadContract({
+    address: KINTSU.address, abi: KINTSU.abi, functionName: 'getAllUserUnlockRequests',
+    args: addr ? [addr] : undefined,
+    query: { enabled: kintsu && !!addr, refetchInterval: 30_000 },
+  } as Parameters<typeof useReadContract>[0])
+  type KintsuUnlockRequest = { shares: bigint; spotValue: bigint; batchId: bigint; exitFeeInBips: number }
+  const kintsuReqList: KintsuUnlockRequest[] = Array.isArray(kintsuRequests) ? (kintsuRequests as KintsuUnlockRequest[]) : []
+  const kintsuHasRequests = kintsuReqList.length > 0
+  // spotValue == 0 → batch not submitted yet (awaiting)
+  // spotValue > 0  → batch submitted; contract enforces cooldown (~13h after submission)
+  // Simulate redeem() for each submitted request to know if cooldown has actually passed.
+  const KINTSU_BID      = 20014  // ~5.56h batch interval, used only for wait-time estimate
+  const KINTSU_CT       = 1763911741
+  const kintsuAwaitingCount  = kintsuReqList.filter(r => r.spotValue === 0n).length
+
+  useEffect(() => {
+    if (!addr || !kintsu || !publicClient) return
+    const submitted = kintsuReqList.map((r, i) => ({ r, i })).filter(({ r }) => r.spotValue > 0n)
+    if (submitted.length === 0) return
+    Promise.all(submitted.map(async ({ i }) => {
+      try {
+        await publicClient.simulateContract({
+          address: KINTSU.address, abi: KINTSU.abi, functionName: 'redeem',
+          args: [BigInt(i), addr], account: addr,
+        })
+        return [i, true] as const
+      } catch {
+        return [i, false] as const
+      }
+    })).then(results => setKintsuSimResults(new Map(results)))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [kintsuReqList, addr, kintsu])
+
+  // Rate: convertToAssets(1 sMON) → MON (for display; does NOT include exit fee)
+  const { data: kintsuRate1 } = useReadContract({
+    address: KINTSU.address, abi: KINTSU.abi, functionName: 'convertToAssets',
+    args: [parseEther('1')],
+    query: { enabled: kintsu },
+  } as Parameters<typeof useReadContract>[0])
+  // Preview MON for entered sMON amount
+  const { data: kintsuAssetsOut } = useReadContract({
+    address: KINTSU.address, abi: KINTSU.abi, functionName: 'convertToAssets',
+    args: parsedShares > 0n ? [parsedShares] : undefined,
+    query: { enabled: kintsu && parsedShares > 0n },
+  } as Parameters<typeof useReadContract>[0])
+
+  const kintsuRateStr    = kintsuRate1    ? (Number(kintsuRate1    as bigint) / 1e18).toFixed(4) : '—'
+  const kintsuReceiveStr = kintsuAssetsOut ? (Number(kintsuAssetsOut as bigint) / 1e18).toFixed(5) : '—'
+
+  // ── Magma/Apriori ERC7540 reads ──────────────────────────────────────────
+  const isMagmaOrApriori = magma || apriori
+  const erc7540Abi  = magma ? MAGMA.abi  : APRIORI.abi
+  const erc7540Addr = magma ? MAGMA.address : APRIORI.address
+  const { data: pendingShares } = useReadContract({
+    address: erc7540Addr, abi: erc7540Abi, functionName: 'pendingRedeemRequest',
+    args: addr ? [0n, addr] : undefined,
+    query: { enabled: !!addr && isMagmaOrApriori },
+  } as Parameters<typeof useReadContract>[0])
+  const { data: claimableShares } = useReadContract({
+    address: erc7540Addr, abi: erc7540Abi, functionName: 'claimableRedeemRequest',
+    args: addr ? [0n, addr] : undefined,
+    query: { enabled: !!addr && isMagmaOrApriori },
+  } as Parameters<typeof useReadContract>[0])
+  const hasPending   = (pendingShares  as bigint ?? 0n) > 0n
+  const hasClaimable = (claimableShares as bigint ?? 0n) > 0n
+
+  // Magma: estimate pending MON via convertToShares(1e18)
+  const { data: magmaSharesPerMon } = useReadContract({
+    address: MAGMA.address, abi: MAGMA.abi, functionName: 'convertToShares',
+    args: [parseEther('1')],
+    query: { enabled: magma && hasPending },
+  } as Parameters<typeof useReadContract>[0])
+  const pendingGmon = hasPending ? Number(formatUnits(pendingShares as bigint, 18)) : 0
+  const pendingMonEst = magmaSharesPerMon && hasPending && (magmaSharesPerMon as bigint) > 0n
+    ? pendingGmon / (Number(magmaSharesPerMon as bigint) / 1e18) : null
+
+  // ── Apriori-specific reads ────────────────────────────────────────────────
+  // Rate: convertToAssets(1 aprMON) → MON
+  const { data: aprRate1 } = useReadContract({
+    address: APRIORI.address, abi: APRIORI.abi, functionName: 'convertToAssets',
+    args: [parseEther('1')],
+    query: { enabled: apriori },
+  } as Parameters<typeof useReadContract>[0])
+  // Rate for entered amount
+  const { data: aprAssetsOut } = useReadContract({
+    address: APRIORI.address, abi: APRIORI.abi, functionName: 'convertToAssets',
+    args: parsedShares > 0n ? [parsedShares] : undefined,
+    query: { enabled: apriori && parsedShares > 0n },
+  } as Parameters<typeof useReadContract>[0])
+  // All user requests on-chain (paginated, 50 max)
+  const { data: aprRequests, refetch: refetchAprRequests } = useReadContract({
+    address: APRIORI.address, abi: APRIORI.abi, functionName: 'getUserRequestData',
+    args: addr ? [addr, 0n, 50n] : undefined,
+    query: { enabled: apriori && !!addr },
+  } as Parameters<typeof useReadContract>[0])
+
+  type AprRequest = { id: bigint; claimed: boolean; claimable: boolean; shares: bigint; assets: bigint; timestamp: bigint; unlockEpoch: bigint }
+  const aprReqList = (aprRequests as AprRequest[] | undefined) ?? []
+  const aprClaimable = aprReqList.filter(r => r.claimable && !r.claimed)
+  const aprPending   = aprReqList.filter(r => !r.claimable && !r.claimed)
+
+  const aprRateStr = aprRate1 ? (Number(aprRate1 as bigint) / 1e18).toFixed(4) : '—'
+  const aprReceiveStr = parsedShares > 0n && aprAssetsOut
+    ? (Number(aprAssetsOut as bigint) / 1e18).toFixed(5) : '—'
+
+  // ── Magma-specific reads ───────────────────────────────────────────────────
+  // Step 1: get user's active requestId (0 = no request)
+  const { data: magmaRequestId } = useReadContract({
+    address: MAGMA.address, abi: MAGMA.abi, functionName: 'ownerRequestId',
+    args: addr ? [addr] : undefined,
+    query: { enabled: magma && !!addr },
+  } as Parameters<typeof useReadContract>[0])
+  const mgReqId = (magmaRequestId as bigint) ?? 0n
+  const mgHasRequest = mgReqId > 0n
+
+  // Step 2: pending shares (waiting period not over yet)
+  const { data: mgPendingShares } = useReadContract({
+    address: MAGMA.address, abi: MAGMA.abi, functionName: 'pendingRedeemRequest',
+    args: mgHasRequest && addr ? [mgReqId, addr] : undefined,
+    query: { enabled: magma && mgHasRequest && !!addr },
+  } as Parameters<typeof useReadContract>[0])
+
+  // Step 2: claimable shares (ready to claim)
+  const { data: mgClaimableShares } = useReadContract({
+    address: MAGMA.address, abi: MAGMA.abi, functionName: 'claimableRedeemRequest',
+    args: mgHasRequest && addr ? [mgReqId, addr] : undefined,
+    query: { enabled: magma && mgHasRequest && !!addr },
+  } as Parameters<typeof useReadContract>[0])
+
+  // Rate: convertToAssets(1 gMON) for mode card display
+  const { data: mgRate1 } = useReadContract({
+    address: MAGMA.address, abi: MAGMA.abi, functionName: 'convertToAssets',
+    args: [parseEther('1')],
+    query: { enabled: magma },
+  } as Parameters<typeof useReadContract>[0])
+
+  // Preview MON for entered amount
+  const { data: mgAssetsOut } = useReadContract({
+    address: MAGMA.address, abi: MAGMA.abi, functionName: 'convertToAssets',
+    args: parsedShares > 0n ? [parsedShares] : undefined,
+    query: { enabled: magma && parsedShares > 0n },
+  } as Parameters<typeof useReadContract>[0])
+
+  // Preview MON for claimable shares (for Claim tab display)
+  const mgClaimableSharesBig = (mgClaimableShares as bigint) ?? 0n
+  const { data: mgClaimableAssets } = useReadContract({
+    address: MAGMA.address, abi: MAGMA.abi, functionName: 'convertToAssets',
+    args: mgClaimableSharesBig > 0n ? [mgClaimableSharesBig] : undefined,
+    query: { enabled: magma && mgClaimableSharesBig > 0n },
+  } as Parameters<typeof useReadContract>[0])
+
+  // Magma instant unstake: gMON allowance to SwapRouter
+  const { data: mgInstantAllowance } = useReadContract({
+    address: MAGMA.address, abi: ERC20_ABI, functionName: 'allowance',
+    args: addr ? [addr, UNISWAP_V3_SWAP_ROUTER.address] : undefined,
+    query: { enabled: magma && !!addr },
+  } as Parameters<typeof useReadContract>[0])
+  const mgInstantIsApproved = parsedShares > 0n
+    ? (mgInstantAllowance as bigint ?? 0n) >= parsedShares
+    : true
+
+  // gMON/WMON pool slot0 — same pattern as UniswapV3Flow (slot0?.[0] = sqrtPriceX96)
+  // WMON=token0 (0x3b... < 0x84... = gMON), gMON=token1
+  // price = (sqrtPriceX96/2^96)^2 = gMON per WMON → invert to get WMON per gMON
+  const { data: gMonSlot0 } = useReadContract({
+    address: GMON_WMON_V3_POOL_ADDRESS,
+    abi: UNISWAP_V3_POOL_ABI,
+    functionName: 'slot0',
+    query: { enabled: magma, refetchInterval: 30_000 },
   })
-  const balStr = balRaw !== undefined ? (Number(balRaw) / 10 ** decimals).toString() : undefined
+  const gMonSqrtP96 = (gMonSlot0 as readonly [bigint, ...unknown[]] | undefined)?.[0] ?? 0n
+  const gMonPoolRate = gMonSqrtP96 > 0n
+    ? (() => {
+        const gMonPerWmon = Math.pow(Number(gMonSqrtP96) / 2 ** 96, 2)
+        return gMonPerWmon > 0 ? 1 / gMonPerWmon : null
+      })()
+    : null
+  // NAV-based rate from convertToAssets(1 gMON) — used as fallback if pool read not yet loaded
+  const navRate = mgRate1 ? Number(mgRate1 as bigint) / 1e18 : null
+  const mgInstantBaseRate = gMonPoolRate ?? navRate
+  // Displayed rate: pool rate (or NAV) minus ~1% pool fee
+  const mgInstantRateStr = mgInstantBaseRate ? (mgInstantBaseRate * 0.99).toFixed(4) : '—'
+  // YOU RECEIVE: use convertToAssets(parsedShares) × 0.99 — exact NAV redemption value minus pool fee
+  // Falls back to pool-rate-based estimate if mgAssetsOut not loaded yet
+  const mgInstantReceiveStr = parsedShares > 0n
+    ? mgAssetsOut
+      ? (Number(mgAssetsOut as bigint) / 1e18 * 0.99).toFixed(5)
+      : mgInstantBaseRate
+        ? (Number(parsedShares) / 1e18 * mgInstantBaseRate * 0.99).toFixed(5)
+        : '—'
+    : '—'
 
-  // Allowance — how much the vault is approved to spend
-  const { data: allowance } = useReadContract({
-    address: assetAddr,
-    abi: ERC20_ABI,
-    functionName: 'allowance',
-    args: [address as `0x${string}`, vault],
-    query: { enabled: !!address },
-  })
+  // Derived Magma display values
+  const mgRateStr = mgRate1 ? (Number(mgRate1 as bigint) / 1e18).toFixed(4) : '—'
+  const mgReceiveStr = parsedShares > 0n && mgAssetsOut ? (Number(mgAssetsOut as bigint) / 1e18).toFixed(5) : '—'
+  const mgHasPending = (mgPendingShares as bigint ?? 0n) > 0n
+  const mgHasClaimable = mgClaimableSharesBig > 0n
+  const mgPendingSharesBig = (mgPendingShares as bigint) ?? 0n
+  const mgPendingGmon = mgHasPending ? (Number(mgPendingSharesBig) / 1e18).toFixed(4) : '0'
+  const mgPendingMonEst = mgHasPending && mgRate1
+    ? ((Number(mgPendingSharesBig) / 1e18) * (Number(mgRate1 as bigint) / 1e18)).toFixed(5) : '—'
+  const mgClaimableMonEst = mgHasClaimable && mgClaimableAssets
+    ? (Number(mgClaimableAssets as bigint) / 1e18).toFixed(5) : '—'
 
-  const isApproved = parsedAmt > 0n && (allowance ?? 0n) >= parsedAmt
-  const currentStep = isApproved ? 2 : 1
+  // ── Write hooks ──────────────────────────────────────────────────────────
+  const { writeContract, data: txHash, isPending: isSigning, error: writeError } = useWriteContract()
+  const { isLoading: isConfirming, isSuccess, error: receiptError } = useWaitForTransactionReceipt({ hash: txHash })
+  const isPending = isSigning || isConfirming
+  const error = writeError ?? receiptError
 
-  // Approve tx
-  const approveWrite = useWriteContract()
-  const approveTx = useWaitForTransactionReceipt({ hash: approveWrite.data })
+  const { writeContract: claimWrite, data: claimTxHash, isPending: claimIsSigning, error: claimWriteError } = useWriteContract()
+  const { isLoading: claimIsConfirming, isSuccess: claimIsSuccess, error: claimReceiptError } = useWaitForTransactionReceipt({ hash: claimTxHash })
+  const claimPending = claimIsSigning || claimIsConfirming
+  const claimError   = claimWriteError ?? claimReceiptError
 
-  // Deposit tx
-  const depositWrite = useWriteContract()
-  const depositTx = useWaitForTransactionReceipt({ hash: depositWrite.data })
+  // After Kintsu requestUnlock succeeds: refetch + switch to Claim tab so user sees new pending request
+  useEffect(() => {
+    if (isSuccess && kintsu) {
+      refetchKintsuRequests()
+      setKintsuSubTab('claim')
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess])
+  // After Kintsu claim succeeds: refetch request list (contract uses swap-and-pop so indices shift)
+  useEffect(() => {
+    if (claimIsSuccess && kintsuClaimingIdx !== null) {
+      refetchKintsuRequests()
+      setKintsuClaimingIdx(null)
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [claimIsSuccess])
 
-  const isSigning  = approveWrite.isPending || depositWrite.isPending
-  const isWaiting  = approveTx.isLoading   || depositTx.isLoading
-  const isPending  = isSigning || isWaiting
-  const isSuccess  = depositTx.isSuccess
-  const txHash     = depositWrite.data ?? approveWrite.data
-  const error      = approveWrite.error ?? approveTx.error ?? depositWrite.error ?? depositTx.error
+  // Magma instant unstake: approve gMON to SwapRouter
+  const { writeContract: mgApproveWrite, data: mgApproveTxHash, isPending: mgApproveIsSigning, error: mgApproveWriteError } = useWriteContract()
+  const { isLoading: mgApproveIsConfirming, isSuccess: mgApproveIsSuccess, error: mgApproveReceiptError } = useWaitForTransactionReceipt({ hash: mgApproveTxHash })
+  const mgApprovePending = mgApproveIsSigning || mgApproveIsConfirming
+  const mgApproveError   = mgApproveWriteError ?? mgApproveReceiptError
 
-  function handleAction() {
-    if (!address || parsedAmt === 0n || isPending) return
-    const receiver = address as `0x${string}`
-    if (currentStep === 1) {
-      approveWrite.writeContract({ address: assetAddr, abi: ERC20_ABI, functionName: 'approve', args: [vault, parsedAmt] })
-    } else {
-      depositWrite.writeContract({ address: vault, abi: ERC4626_ABI, functionName: 'deposit', args: [parsedAmt, receiver] })
+  function handleMagmaInstantApprove() {
+    if (!addr) return
+    mgApproveWrite({ address: MAGMA.address, abi: ERC20_ABI, functionName: 'approve', args: [UNISWAP_V3_SWAP_ROUTER.address, maxUint256] })
+  }
+
+  function handleUnstake() {
+    if (!addr || parsedShares === 0n) return
+    if (fastlane) {
+      if (fastlaneMode === 'traditional') {
+        writeContract({ address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'requestUnstake', args: [parsedShares] })
+      } else {
+        writeContract({ address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'redeem', args: [parsedShares, addr, addr] })
+      }
+    } else if (kintsu) {
+      // requestUnlock(shares uint96, minSpotValue uint96=0 for no slippage protection)
+      // Use 99.5% of shares to avoid precision overflow: spotValue stored must not exceed pool's available MON
+      const safeKintsuShares = parsedShares * 9950n / 10000n
+      writeContract({ address: KINTSU.address, abi: KINTSU.abi, functionName: 'requestUnlock', args: [safeKintsuShares as unknown as bigint, 0n as unknown as bigint] })
+    } else if (magma) {
+      if (magmaMode === 'pool') {
+        // Instant: gMON → WMON → native MON via Uniswap V3 SwapRouter02 multicall
+        // SwapRouter02 has NO deadline in exactInputSingle (unlike SwapRouter01)
+        const swapCalldata = encodeFunctionData({
+          abi: UNISWAP_V3_SWAP_ROUTER.abi,
+          functionName: 'exactInputSingle',
+          args: [{ tokenIn: MAGMA.address, tokenOut: TOKENS.WMON, fee: 10000, recipient: UNISWAP_V3_SWAP_ROUTER.address, amountIn: parsedShares, amountOutMinimum: 0n, sqrtPriceLimitX96: 0n }],
+        })
+        const unwrapCalldata = encodeFunctionData({
+          abi: UNISWAP_V3_SWAP_ROUTER.abi,
+          functionName: 'unwrapWETH9',
+          args: [0n, addr],
+        })
+        writeContract({ address: UNISWAP_V3_SWAP_ROUTER.address, abi: UNISWAP_V3_SWAP_ROUTER.abi, functionName: 'multicall', args: [[swapCalldata, unwrapCalldata]] })
+      } else {
+        writeContract({ address: MAGMA.address, abi: MAGMA.abi, functionName: 'requestRedeem', args: [parsedShares, addr, addr] })
+      }
+    } else if (apriori) {
+      writeContract({ address: APRIORI.address, abi: APRIORI.abi, functionName: 'requestRedeem', args: [parsedShares, addr, addr] })
     }
   }
 
-  const btnLabel = isSuccess        ? `✓ Deposited ${amount} ${pool.asset}`
-    : isSigning                     ? 'Confirm in wallet…'
-    : isWaiting                     ? 'Transaction pending…'
-    : currentStep === 1             ? `Approve ${pool.asset}`
-                                    : `Deposit ${pool.asset}`
+  function handleAprioriClaim(ids: bigint[]) {
+    if (!addr || ids.length === 0) return
+    claimWrite({ address: APRIORI.address, abi: APRIORI.abi, functionName: 'redeem', args: [ids, addr] })
+  }
 
+  function handleMagmaClaim() {
+    if (!addr || !mgHasClaimable || mgReqId === 0n) return
+    claimWrite({ address: MAGMA.address, abi: MAGMA.abi, functionName: 'redeemMON', args: [mgReqId, addr, addr] })
+  }
+  function handleKintsuClaim(unlockIndex: bigint) {
+    if (!addr) return
+    setKintsuClaimingIdx(Number(unlockIndex))
+    claimWrite({ address: KINTSU.address, abi: KINTSU.abi, functionName: 'redeem', args: [unlockIndex, addr] })
+  }
+  function handleFastlaneComplete() {
+    if (!addr) return
+    claimWrite({ address: FASTLANE.address, abi: FASTLANE.abi, functionName: 'completeUnstake', args: [] })
+  }
+
+  // ── Fastlane UI ──────────────────────────────────────────────────────────
+  if (fastlane) {
+    const btnLabel = isSuccess
+      ? (fastlaneMode === 'traditional' ? '✓ Unstake requested' : '✓ Unstaked')
+      : isSigning ? 'Confirm in wallet…'
+      : isConfirming ? 'Transaction pending…'
+      : parsedShares === 0n ? 'Enter an amount to unstake'
+      : fastlaneMode === 'traditional' ? 'Request Unstake (shMON)'
+      : 'Unstake Now (Pool)'
+
+    return (
+      <div className="space-y-3">
+        {/* Request / Claim sub-tabs */}
+        <div className="grid grid-cols-2 bg-[#0d1624] rounded-xl p-1">
+          {(['request', 'claim'] as const).map(t => (
+            <button key={t} onClick={() => setFastlaneSubTab(t)}
+              className={`py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
+                fastlaneSubTab === t ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'
+              }`}>
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'claim' && flHasPending && (
+                <span className="ml-1.5 bg-amber-500 text-black text-xs rounded-full px-1.5 py-0.5 font-bold">1</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ── REQUEST tab ── */}
+        {fastlaneSubTab === 'request' && (
+          <>
+            {/* Amount input — shMON */}
+            <div className="bg-[#0d1624] border border-[#1a2535] rounded-2xl px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Enter amount to unstake</span>
+                {lstBalFloor && (
+                  <button onClick={() => setAmount(lstBalFloor)}
+                    className="text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors">MAX</button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text" inputMode="decimal" placeholder="0"
+                  value={amount} onChange={e => setAmount(e.target.value)}
+                  className="flex-1 bg-transparent text-2xl font-medium text-white placeholder-slate-600 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <div className="flex items-center gap-2 shrink-0">
+                  <img src={TOKEN_LOGO.shMON} alt="shMON" className="w-7 h-7 rounded-full object-cover" />
+                  <span className="text-sm font-semibold text-white">shMON</span>
+                </div>
+              </div>
+              {lstBalStr && (
+                <p className="text-xs text-slate-500 text-right">{Number(lstBalStr).toFixed(4)} shMON</p>
+              )}
+            </div>
+
+            {/* Arrow */}
+            <div className="flex justify-center">
+              <div className="w-8 h-8 rounded-full bg-[#0d1624] border border-[#1a2535] flex items-center justify-center text-slate-400 text-sm">↓</div>
+            </div>
+
+            {/* You receive — MON */}
+            <div className="bg-[#0d1624] border border-[#1a2535] rounded-2xl px-4 py-3 space-y-2">
+              <span className="text-xs text-slate-400">You receive</span>
+              <div className="flex items-center gap-3">
+                <span className="flex-1 text-2xl font-medium text-white">{flYouReceiveDisplay}</span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <img src={TOKEN_LOGO.MON} alt="MON" className="w-7 h-7 rounded-full object-cover" />
+                  <span className="text-sm font-semibold text-white">MON</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Mode selector cards */}
+            <div className="grid grid-cols-2 gap-2">
+              {/* Use shMON (traditional) */}
+              <button
+                onClick={() => setFastlaneMode('traditional')}
+                className={`text-left p-3 rounded-xl border transition-colors ${
+                  fastlaneMode === 'traditional'
+                    ? 'border-violet-500 bg-violet-500/10'
+                    : 'border-[#1a2535] bg-[#0d1624] hover:border-[#2a3a52]'
+                }`}
+              >
+                <p className="text-sm font-semibold text-white mb-2">Use shMON</p>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Rate:</span>
+                    <span className="text-white">1:{flTradRate}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Wait:</span>
+                    <span className="text-white">~1 day</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">You receive:</span>
+                    <span className="text-white font-medium">{parsedShares > 0n ? flTradReceive : '—'} MON</span>
+                  </div>
+                </div>
+              </button>
+
+              {/* Use Pool (atomic/instant) */}
+              <button
+                onClick={() => setFastlaneMode('pool')}
+                className={`text-left p-3 rounded-xl border transition-colors ${
+                  fastlaneMode === 'pool'
+                    ? 'border-violet-500 bg-violet-500/10'
+                    : 'border-[#1a2535] bg-[#0d1624] hover:border-[#2a3a52]'
+                }`}
+              >
+                <p className="text-sm font-semibold text-white mb-2">Use Pool</p>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Fee:</span>
+                    <span className="text-white">
+                      {parsedShares > 0n && flTraditionalOut && flInstantOut
+                        ? `${((Number(flTraditionalOut as bigint) - Number(flInstantOut as bigint)) / 1e18).toFixed(5)} MON`
+                        : flFeeRay ? `${(Number(flFeeRay as bigint) / 1e27 * 100).toFixed(3)}%` : '—'}
+                    </span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Rate:</span>
+                    <span className="text-white">1:{flInstRate}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Wait:</span>
+                    <span className="text-emerald-400 font-medium">Instant</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">You receive:</span>
+                    <span className="text-white font-medium">{parsedShares > 0n ? flInstReceive : '—'} MON</span>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Pending info note (if exists) */}
+            {flHasPending && fastlaneMode === 'traditional' && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+                <p className="text-xs text-amber-400">
+                  ⚠ You already have a pending request. A new request will merge with it and reset the waiting period.
+                  Switch to the Claim tab to check status.
+                </p>
+              </div>
+            )}
+
+            {/* Action button */}
+            <Btn label={btnLabel} onClick={handleUnstake} disabled={!addr || parsedShares === 0n || isPending || isSuccess} />
+
+            {txHash && (
+              <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+                className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] truncate">
+                {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
+              </a>
+            )}
+            {error && (
+              <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                {(error as Error).message?.split('\n')[0]?.slice(0, 120)}
+              </p>
+            )}
+          </>
+        )}
+
+        {/* ── CLAIM tab ── */}
+        {fastlaneSubTab === 'claim' && (
+          <div className="space-y-3">
+            {!flHasPending ? (
+              <p className="text-xs text-slate-500 text-center py-6">No pending unstake requests.</p>
+            ) : (
+              <>
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 space-y-2">
+                  <p className="text-xs text-amber-400 font-medium">Unstake in progress (~22-27h)</p>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Pending receive</span>
+                    <span className="text-white font-medium">≈ {(Number(flPendingMon) / 1e18).toFixed(5)} MON</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Completion epoch</span>
+                    <span className="text-slate-300">{flCompletionEpoch.toString()}</span>
+                  </div>
+                  <p className="text-xs text-slate-500">
+                    Once the epoch passes, click Complete Unstake to receive your MON.
+                  </p>
+                </div>
+
+                <Btn
+                  label={claimIsSuccess ? '✓ MON Claimed' : claimIsSigning ? 'Confirm in wallet…' : claimIsConfirming ? 'Transaction pending…' : 'Complete Unstake'}
+                  onClick={handleFastlaneComplete}
+                  disabled={claimPending || claimIsSuccess}
+                />
+                {claimTxHash && (
+                  <a href={`https://monadexplorer.com/tx/${claimTxHash}`} target="_blank" rel="noopener noreferrer"
+                    className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] truncate">
+                    {claimTxHash.slice(0, 20)}…{claimTxHash.slice(-8)} ↗
+                  </a>
+                )}
+                {claimError && (
+                  <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                    {(claimError as Error).message?.split('\n')[0]?.slice(0, 120)}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Apriori UI ────────────────────────────────────────────────────────────
+  if (apriori) {
+    const claimableIds = aprClaimable.map(r => r.id)
+    const btnLabel = aprioriSubTab === 'claim'
+      ? (claimIsSuccess ? '✓ Claimed' : claimIsSigning ? 'Confirm in wallet…' : claimIsConfirming ? 'Claiming…' : `Claim ${aprClaimable.length} Request${aprClaimable.length !== 1 ? 's' : ''}`)
+      : isSuccess ? '✓ Request submitted'
+      : isSigning ? 'Confirm in wallet…'
+      : isConfirming ? 'Transaction pending…'
+      : parsedShares === 0n ? 'Enter an amount'
+      : aprioriMode === 'traditional' ? 'Request Unstake (aPriori)'
+      : 'Coming soon'
+
+    return (
+      <div className="space-y-3">
+        {/* Request / Claim sub-tabs */}
+        <div className="grid grid-cols-2 bg-[#0d1624] rounded-xl p-1">
+          {(['request', 'claim'] as const).map(t => (
+            <button key={t} onClick={() => setAprioriSubTab(t)}
+              className={`py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
+                aprioriSubTab === t ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'
+              }`}>
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'claim' && aprClaimable.length > 0 && (
+                <span className="ml-1.5 bg-emerald-500 text-black text-xs rounded-full px-1.5 py-0.5 font-bold">
+                  {aprClaimable.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ── REQUEST tab ── */}
+        {aprioriSubTab === 'request' && (
+          <>
+            {/* Amount input */}
+            <div className="bg-[#0d1624] border border-[#1a2535] rounded-2xl px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Unstake aprMON</span>
+                <div className="flex items-center gap-2 text-xs text-slate-500">
+                  <span>🗂</span>
+                  <span>{lstBalStr ? Number(lstBalStr).toFixed(4) : '0'} aprMON</span>
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <img src={TOKEN_LOGO.aprMON} alt="aprMON" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                <input
+                  type="text" inputMode="decimal" placeholder="0.0"
+                  value={amount} onChange={e => setAmount(e.target.value)}
+                  className="flex-1 bg-transparent text-2xl font-medium text-white placeholder-slate-600 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                {lstBalFloor && (
+                  <button onClick={() => setAmount(lstBalFloor)}
+                    className="px-3 py-1.5 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 text-xs font-semibold rounded-lg transition-colors">
+                    Max
+                  </button>
+                )}
+              </div>
+            </div>
+
+            {/* Mode cards */}
+            <div className="grid grid-cols-2 gap-2">
+              {/* Use aPriori (traditional) */}
+              <button onClick={() => setAprioriMode('traditional')}
+                className={`text-left p-3 rounded-xl border transition-colors ${
+                  aprioriMode === 'traditional'
+                    ? 'border-indigo-500 bg-indigo-500/10'
+                    : 'border-[#1a2535] bg-[#0d1624] hover:border-[#2a3a52]'
+                }`}>
+                <p className="text-sm font-semibold text-white mb-2">Use aPriori</p>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Rate:</span>
+                    <span className="text-white">1:{aprRateStr}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Wait time:</span>
+                    <span className="text-white">about 12 hours</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">You receive:</span>
+                    <span className="text-white font-medium">
+                      {parsedShares > 0n ? aprReceiveStr : '0'} MON
+                    </span>
+                  </div>
+                </div>
+              </button>
+
+              {/* Use Pool (instant — disabled until ABI provided) */}
+              <button onClick={() => setAprioriMode('pool')}
+                className={`text-left p-3 rounded-xl border transition-colors ${
+                  aprioriMode === 'pool'
+                    ? 'border-indigo-500 bg-indigo-500/10'
+                    : 'border-[#1a2535] bg-[#0d1624] hover:border-[#2a3a52]'
+                }`}>
+                <div className="flex items-center justify-between mb-2">
+                  <p className="text-sm font-semibold text-white">Use Pool</p>
+                  <span className="text-slate-500 text-xs">⚙</span>
+                </div>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Rate:</span>
+                    <span className="text-slate-500">-</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Wait time:</span>
+                    <span className="text-white font-medium">Instant</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">You receive:</span>
+                    <span className="text-slate-500">-</span>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Action button */}
+            <Btn
+              label={btnLabel}
+              onClick={() => {
+                if (!addr || parsedShares === 0n) return
+                if (aprioriMode === 'traditional') {
+                  writeContract({ address: APRIORI.address, abi: APRIORI.abi, functionName: 'requestRedeem', args: [parsedShares, addr, addr] })
+                }
+                // pool mode: TODO when ABI provided
+              }}
+              disabled={!addr || parsedShares === 0n || isPending || isSuccess || aprioriMode === 'pool'}
+            />
+            {txHash && (
+              <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+                className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] truncate">
+                {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
+              </a>
+            )}
+            {error && (
+              <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                {(error as Error).message?.split('\n')[0]?.slice(0, 120)}
+              </p>
+            )}
+
+            {/* Pending requests summary */}
+            {aprPending.length > 0 && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 space-y-1">
+                <p className="text-xs text-amber-400 font-medium">Pending requests ({aprPending.length})</p>
+                {aprPending.slice(0, 3).map(r => (
+                  <div key={r.id.toString()} className="flex justify-between text-xs">
+                    <span className="text-slate-400">≈ {(Number(r.assets) / 1e18).toFixed(4)} MON</span>
+                    <span className="text-slate-500">epoch {r.unlockEpoch.toString()}</span>
+                  </div>
+                ))}
+                <p className="text-xs text-slate-500 pt-1">Switch to Claim tab when ready.</p>
+              </div>
+            )}
+
+            {aprioriMode === 'traditional' && (
+              <div className="flex justify-between text-xs text-slate-500 px-1">
+                <span>Estimated wait time:</span>
+                <span>about 12 hours</span>
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ── CLAIM tab ── */}
+        {aprioriSubTab === 'claim' && (
+          <div className="space-y-3">
+            {aprReqList.length === 0 && (
+              <p className="text-xs text-slate-500 text-center py-6">No unstake requests found.</p>
+            )}
+
+            {aprPending.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-500 font-medium">Pending ({aprPending.length})</p>
+                {aprPending.map(r => (
+                  <div key={r.id.toString()} className="bg-[#0d1624] border border-[#1a2535] rounded-xl px-4 py-3">
+                    <div className="flex justify-between text-xs mb-1">
+                      <span className="text-slate-400">≈ {(Number(r.assets) / 1e18).toFixed(5)} MON</span>
+                      <span className="text-amber-400">Pending</span>
+                    </div>
+                    <div className="flex justify-between text-xs text-slate-500">
+                      <span>Unlock epoch: {r.unlockEpoch.toString()}</span>
+                      <span>{new Date(Number(r.timestamp) * 1000).toLocaleDateString()}</span>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {aprClaimable.length > 0 && (
+              <div className="space-y-2">
+                <p className="text-xs text-slate-500 font-medium">Ready to claim ({aprClaimable.length})</p>
+                {aprClaimable.map(r => (
+                  <div key={r.id.toString()} className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3">
+                    <div className="flex justify-between text-xs">
+                      <span className="text-white font-medium">≈ {(Number(r.assets) / 1e18).toFixed(5)} MON</span>
+                      <span className="text-emerald-400 font-medium">✓ Claimable</span>
+                    </div>
+                  </div>
+                ))}
+                <Btn
+                  label={claimIsSuccess ? '✓ Claimed' : claimIsSigning ? 'Confirm in wallet…' : claimIsConfirming ? 'Claiming…' : `Claim ${aprClaimable.length} Request${aprClaimable.length !== 1 ? 's' : ''}`}
+                  onClick={() => handleAprioriClaim(claimableIds)}
+                  disabled={claimPending || claimIsSuccess}
+                />
+                {claimTxHash && (
+                  <a href={`https://monadexplorer.com/tx/${claimTxHash}`} target="_blank" rel="noopener noreferrer"
+                    className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] truncate">
+                    {claimTxHash.slice(0, 20)}…{claimTxHash.slice(-8)} ↗
+                  </a>
+                )}
+                {claimError && (
+                  <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                    {(claimError as Error).message?.split('\n')[0]?.slice(0, 120)}
+                  </p>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Kintsu UI ─────────────────────────────────────────────────────────────
+  if (kintsu) {
+    const reqBtnLabel = isSuccess ? '✓ Unlock requested'
+      : isSigning ? 'Confirm in wallet…'
+      : isConfirming ? 'Transaction pending…'
+      : parsedShares === 0n ? 'Enter an amount to unstake'
+      : 'Request Unlock (sMON)'
+
+    return (
+      <div className="space-y-3">
+        {/* Request / Claim sub-tabs */}
+        <div className="grid grid-cols-2 bg-[#0d1624] rounded-xl p-1">
+          {(['request', 'claim'] as const).map(t => (
+            <button key={t} onClick={() => setKintsuSubTab(t)}
+              className={`py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
+                kintsuSubTab === t ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'
+              }`}>
+              {t === 'request' ? 'Request' : 'Claim'}
+              {t === 'claim' && kintsuHasRequests && (
+                <span className="ml-1.5 bg-amber-500 text-black text-xs rounded-full px-1.5 py-0.5 font-bold">
+                  {kintsuReqList.length}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ── REQUEST tab ── */}
+        {kintsuSubTab === 'request' && (
+          <>
+            {/* sMON input */}
+            <div className="bg-[#0d1624] border border-[#1a2535] rounded-2xl px-4 py-3 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">Enter amount to unstake</span>
+                {lstBalFloor && (
+                  <button onClick={() => setAmount(lstBalFloor)}
+                    className="text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors">MAX</button>
+                )}
+              </div>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text" inputMode="decimal" placeholder="0"
+                  value={amount} onChange={e => setAmount(e.target.value)}
+                  className="flex-1 bg-transparent text-2xl font-medium text-white placeholder-slate-600 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <div className="flex items-center gap-2 shrink-0">
+                  <img src={TOKEN_LOGO.sMON} alt="sMON" className="w-7 h-7 rounded-full object-cover" />
+                  <span className="text-sm font-semibold text-white">sMON</span>
+                </div>
+              </div>
+              {lstBalStr && (
+                <p className="text-xs text-slate-500 text-right">{Number(lstBalStr).toFixed(4)} sMON available</p>
+              )}
+            </div>
+
+            <div className="flex justify-center">
+              <div className="w-8 h-8 rounded-full bg-[#0d1624] border border-[#1a2535] flex items-center justify-center text-slate-400 text-sm">↓</div>
+            </div>
+
+            {/* You receive */}
+            <div className="bg-[#0d1624] border border-[#1a2535] rounded-2xl px-4 py-3 space-y-2">
+              <span className="text-xs text-slate-400">You receive (est.)</span>
+              <div className="flex items-center gap-3">
+                <span className="flex-1 text-2xl font-medium text-white">
+                  {parsedShares > 0n ? kintsuReceiveStr : '0'}
+                </span>
+                <div className="flex items-center gap-2 shrink-0">
+                  <img src={TOKEN_LOGO.MON} alt="MON" className="w-7 h-7 rounded-full object-cover" />
+                  <span className="text-sm font-semibold text-white">MON</span>
+                </div>
+              </div>
+              <div className="flex justify-between text-xs text-slate-500">
+                <span>Rate: 1 sMON ≈ {kintsuRateStr} MON</span>
+                <span>~6h batch + ~6h cooldown</span>
+              </div>
+            </div>
+
+            {kintsuAwaitingCount > 0 && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+                <p className="text-xs text-amber-400">
+                  ⚠ You have {kintsuAwaitingCount} pending request{kintsuAwaitingCount > 1 ? 's' : ''} awaiting batch submission.
+                  You can still submit additional requests.
+                </p>
+              </div>
+            )}
+
+            <p className="text-xs text-slate-500 bg-[#0a1220] border border-[#1a2535] rounded-xl px-3 py-2">
+              {(() => {
+                const nowSec = Math.floor(Date.now() / 1000)
+                const batchProgress = (nowSec - KINTSU_CT) % KINTSU_BID
+                const timeToNextBatch = KINTSU_BID - batchProgress
+                const totalSec = timeToNextBatch + 46800 // +13h cooldown after batch submission
+                const wh = Math.floor(totalSec / 3600)
+                const wm = Math.floor((totalSec % 3600) / 60)
+                const label = wm >= 30 ? `~${wh + 1}h` : `~${wh}h`
+                return `Expectation request unstake: ${label}`
+              })()}
+            </p>
+
+            <Btn label={reqBtnLabel} onClick={handleUnstake} disabled={!addr || parsedShares === 0n || isPending || isSuccess} />
+            {txHash && (
+              <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+                className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+                {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
+              </a>
+            )}
+            {error && (
+              <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                {(error as Error).message?.split('\n')[0]?.slice(0, 120)}
+              </p>
+            )}
+          </>
+        )}
+
+        {/* ── CLAIM tab ── */}
+        {kintsuSubTab === 'claim' && (
+          <>
+            {kintsuReqList.length === 0 ? (
+              <div className="bg-[#0d1624] border border-[#1a2535] rounded-2xl px-4 py-6 text-center">
+                <p className="text-sm text-slate-400">No pending unlock requests</p>
+                <p className="text-xs text-slate-500 mt-1">Request an unstake on the Request tab first.</p>
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {kintsuReqList.map((req, i) => {
+                  const batchSubmitted = req.spotValue > 0n
+                  const simResult = kintsuSimResults.get(i) // true=claimable, false=in cooldown, undefined=checking
+                  const isReady = batchSubmitted && simResult === true
+                  const inCooldown = batchSubmitted && simResult === false
+                  const monAmt = req.spotValue > 0n
+                    ? (Number(req.spotValue) * 0.995 / 1e18).toFixed(5)
+                    : kintsuRate1
+                      ? (Number(req.shares) / 1e18 * Number(kintsuRate1 as bigint) / 1e18 * 0.995).toFixed(5)
+                      : '—'
+                  const isThisOne = kintsuClaimingIdx === i
+                  const thisIsPending = isThisOne && claimPending
+                  const thisIsSuccess = isThisOne && claimIsSuccess
+                  const badgeClass = isReady
+                    ? 'bg-emerald-500/20 text-emerald-400'
+                    : inCooldown
+                      ? 'bg-orange-500/20 text-orange-400'
+                      : 'bg-amber-500/20 text-amber-400'
+                  const badgeLabel = isReady
+                    ? '✓ Ready to claim'
+                    : inCooldown
+                      ? '⏳ In cooldown (~13h)'
+                      : batchSubmitted ? '⏳ Checking…' : '⏳ Awaiting batch'
+                  return (
+                    <div key={i} className="bg-[#0d1624] border border-[#1a2535] rounded-2xl px-4 py-3 space-y-2">
+                      <div className="flex items-center justify-between">
+                        <span className="text-xs font-medium text-white">Request #{i + 1}</span>
+                        <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${badgeClass}`}>
+                          {badgeLabel}
+                        </span>
+                      </div>
+                      <div className="flex justify-between text-xs text-slate-400">
+                        <span>sMON locked: {(Number(req.shares) / 1e18).toFixed(5)}</span>
+                        <span>MON value: {monAmt}</span>
+                      </div>
+                      {isReady ? (
+                        <button
+                          onClick={() => handleKintsuClaim(BigInt(i))}
+                          disabled={thisIsPending || thisIsSuccess || (claimPending && !isThisOne)}
+                          className="w-full py-2 rounded-xl bg-teal-500/20 border border-teal-500/30 text-sm font-medium text-teal-300 hover:bg-teal-500/30 transition-colors disabled:opacity-50"
+                        >
+                          {thisIsSuccess ? '✓ Claimed' : thisIsPending ? (claimIsSigning ? 'Confirm in wallet…' : 'Pending…') : 'Claim MON'}
+                        </button>
+                      ) : inCooldown ? (
+                        <p className="text-xs text-orange-500/70">Cooldown in progress. Check back ~13h after batch submission.</p>
+                      ) : !batchSubmitted ? (
+                        <p className="text-xs text-slate-500">Awaiting batch submission (~5–6h intervals).</p>
+                      ) : null}
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            {claimTxHash && (
+              <a href={`https://monadexplorer.com/tx/${claimTxHash}`} target="_blank" rel="noopener noreferrer"
+                className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+                {claimTxHash.slice(0, 20)}…{claimTxHash.slice(-8)} ↗
+              </a>
+            )}
+            {claimError && (
+              <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                {(() => {
+                  const msg = (claimError as Error).message ?? ''
+                  if (msg.includes('WithdrawDelay') || msg.includes('execution reverted'))
+                    return 'Cooldown period not yet finished. Please try again in a few hours.'
+                  return msg.split('\n')[0]?.slice(0, 120)
+                })()}
+              </p>
+            )}
+          </>
+        )}
+      </div>
+    )
+  }
+
+  // ── Magma UI ──────────────────────────────────────────────────────────────
+  if (magma) {
+    const mgYouReceive = magmaMode === 'traditional' ? mgReceiveStr : (parsedShares > 0n ? mgInstantReceiveStr : '0.00')
+    // Traditional mode button label
+    const tradBtnLabel = isSuccess ? '✓ Request submitted'
+      : isSigning ? 'Confirm in wallet…'
+      : isConfirming ? 'Transaction pending…'
+      : parsedShares === 0n ? 'Enter an amount'
+      : 'Request Unstake (gMON)'
+    // Pool mode: approve or swap
+    const mgInstantEffectiveApproved = mgApproveIsSuccess || mgInstantIsApproved
+    const poolApproveBtnLabel = mgApproveIsSuccess ? '✓ Approved'
+      : mgApproveIsSigning ? 'Confirm in wallet…'
+      : mgApproveIsConfirming ? 'Approving…'
+      : 'Approve gMON'
+    const poolSwapBtnLabel = isSuccess ? '✓ Unstaked'
+      : isSigning ? 'Confirm in wallet…'
+      : isConfirming ? 'Transaction pending…'
+      : parsedShares === 0n ? 'Enter an amount'
+      : 'Instant Unstake'
+
+    return (
+      <div className="space-y-3">
+        {/* Request / Claim sub-tabs */}
+        <div className="grid grid-cols-2 bg-[#0d1624] rounded-xl p-1">
+          {(['request', 'claim'] as const).map(t => (
+            <button key={t} onClick={() => setMagmaSubTab(t)}
+              className={`py-2 rounded-lg text-sm font-medium transition-colors capitalize ${
+                magmaSubTab === t ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'
+              }`}>
+              {t.charAt(0).toUpperCase() + t.slice(1)}
+              {t === 'claim' && mgHasRequest && (
+                <span className={`ml-1.5 text-xs rounded-full px-1.5 py-0.5 font-bold ${
+                  mgHasClaimable ? 'bg-emerald-500 text-black' : 'bg-amber-500 text-black'
+                }`}>1</span>
+              )}
+            </button>
+          ))}
+        </div>
+
+        {/* ── REQUEST tab ── */}
+        {magmaSubTab === 'request' && (
+          <>
+            {/* Mode cards — above amount input (matching Magma UI) */}
+            <div className="grid grid-cols-2 gap-2">
+              {/* Use Magma (traditional) */}
+              <button onClick={() => setMagmaMode('traditional')}
+                className={`text-left p-3 rounded-xl border transition-colors ${
+                  magmaMode === 'traditional'
+                    ? 'border-orange-500 bg-orange-500/10'
+                    : 'border-[#1a2535] bg-[#0d1624] hover:border-[#2a3a52]'
+                }`}>
+                <p className="text-sm font-semibold text-white mb-2">Use Magma</p>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Rate:</span>
+                    <span className="text-white">1:{mgRateStr}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Wait:</span>
+                    <span className="text-white">~12 hours</span>
+                  </div>
+                </div>
+              </button>
+
+              {/* Instant via 0x (UniV3 gMON→WMON→MON) */}
+              <button onClick={() => setMagmaMode('pool')}
+                className={`text-left p-3 rounded-xl border transition-colors ${
+                  magmaMode === 'pool'
+                    ? 'border-orange-500 bg-orange-500/10'
+                    : 'border-[#1a2535] bg-[#0d1624] hover:border-[#2a3a52]'
+                }`}>
+                <p className="text-sm font-semibold text-white mb-2">Instant via 0x</p>
+                <div className="space-y-1">
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Rate:</span>
+                    <span className="text-white">1:{mgInstantRateStr}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Wait:</span>
+                    <span className="text-emerald-400 font-medium">Instant</span>
+                  </div>
+                </div>
+              </button>
+            </div>
+
+            {/* Pending warning (Use Magma selected + has pending) */}
+            {magmaMode === 'traditional' && mgHasRequest && (
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-3 py-2">
+                <p className="text-xs text-amber-400">
+                  ⚠ You already have a pending redemption. Only one redemption is allowed per account at a time.
+                  Switch to Claim tab to view status.
+                </p>
+              </div>
+            )}
+
+            {/* Amount input — gMON */}
+            <div className="bg-[#0d1624] border border-[#1a2535] rounded-2xl px-4 py-3 space-y-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-slate-400">YOU UNSTAKE</span>
+                <div className="flex items-center gap-2">
+                  {lstBalFloor && (
+                    <button onClick={() => setAmount(lstBalFloor)}
+                      className="text-xs text-orange-400 hover:text-orange-300 font-semibold transition-colors">MAX</button>
+                  )}
+                  {lstBalStr && <span className="text-xs text-slate-500">{Number(lstBalStr).toFixed(4)} gMON</span>}
+                </div>
+              </div>
+              <div className="flex items-center gap-3">
+                <img src={TOKEN_LOGO.gMON} alt="gMON" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                <input
+                  type="text" inputMode="decimal" placeholder="0.00"
+                  value={amount} onChange={e => setAmount(e.target.value)}
+                  className="flex-1 bg-transparent text-2xl font-medium text-white placeholder-slate-600 focus:outline-none [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                />
+                <span className="text-sm font-semibold text-slate-300 shrink-0">gMON</span>
+              </div>
+            </div>
+
+            {/* Arrow */}
+            <div className="flex justify-center">
+              <div className="w-8 h-8 rounded-full bg-[#0d1624] border border-[#1a2535] flex items-center justify-center text-slate-400 text-sm">↓</div>
+            </div>
+
+            {/* You receive — MON */}
+            <div className="bg-[#0d1624] border border-[#1a2535] rounded-2xl px-4 py-3 space-y-1">
+              <span className="text-xs text-slate-400">YOU RECEIVE</span>
+              <div className="flex items-center gap-3">
+                <img src={TOKEN_LOGO.MON} alt="MON" className="w-8 h-8 rounded-full object-cover shrink-0" />
+                <span className="flex-1 text-2xl font-medium text-white">{parsedShares > 0n ? mgYouReceive : '0.00'}</span>
+                <span className="text-sm font-semibold text-slate-300 shrink-0">MON</span>
+              </div>
+            </div>
+
+            {/* Action area */}
+            {magmaMode === 'traditional' ? (
+              <>
+                <Btn
+                  label={tradBtnLabel}
+                  onClick={handleUnstake}
+                  disabled={!addr || parsedShares === 0n || isPending || isSuccess || mgHasRequest}
+                />
+                {txHash && (
+                  <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+                    className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] truncate">
+                    {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
+                  </a>
+                )}
+                {error && (
+                  <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                    {(error as Error).message?.split('\n')[0]?.slice(0, 120)}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                {/* Single button — Approve first, then Swap (like Magma UI) */}
+                {!mgInstantEffectiveApproved ? (
+                  <>
+                    <Btn
+                      label={poolApproveBtnLabel}
+                      onClick={handleMagmaInstantApprove}
+                      disabled={!addr || mgApprovePending || mgApproveIsSuccess}
+                    />
+                    {mgApproveTxHash && (
+                      <a href={`https://monadexplorer.com/tx/${mgApproveTxHash}`} target="_blank" rel="noopener noreferrer"
+                        className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] truncate">
+                        {mgApproveTxHash.slice(0, 20)}…{mgApproveTxHash.slice(-8)} ↗
+                      </a>
+                    )}
+                    {mgApproveError && (
+                      <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                        {(mgApproveError as Error).message?.split('\n')[0]?.slice(0, 120)}
+                      </p>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    <Btn
+                      label={poolSwapBtnLabel}
+                      onClick={handleUnstake}
+                      disabled={!addr || parsedShares === 0n || isPending || isSuccess}
+                    />
+                    {txHash && (
+                      <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+                        className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] truncate">
+                        {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
+                      </a>
+                    )}
+                    {error && (
+                      <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                        {(error as Error).message?.split('\n')[0]?.slice(0, 120)}
+                      </p>
+                    )}
+                  </>
+                )}
+                <p className="text-xs text-slate-500 text-center">Powered by Uniswap V3 · gMON/WMON 1% pool</p>
+              </>
+            )}
+          </>
+        )}
+
+        {/* ── CLAIM tab ── */}
+        {magmaSubTab === 'claim' && (
+          <div className="space-y-3">
+            {!mgHasRequest ? (
+              <p className="text-xs text-slate-500 text-center py-6">No pending unstake requests.</p>
+            ) : mgHasClaimable ? (
+              <>
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3 space-y-2">
+                  <p className="text-xs text-emerald-400 font-medium">✓ Ready to claim</p>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Pending redemption (gMON)</span>
+                    <span className="text-white font-medium">{(Number(mgClaimableSharesBig) / 1e18).toFixed(4)}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Estimated assets at redemption (MON)</span>
+                    <span className="text-emerald-400 font-medium">{mgClaimableMonEst}</span>
+                  </div>
+                </div>
+                <Btn
+                  label={claimIsSuccess ? '✓ MON Claimed' : claimIsSigning ? 'Confirm in wallet…' : claimIsConfirming ? 'Transaction pending…' : 'Claim MON'}
+                  onClick={handleMagmaClaim}
+                  disabled={claimPending || claimIsSuccess}
+                />
+                {claimTxHash && (
+                  <a href={`https://monadexplorer.com/tx/${claimTxHash}`} target="_blank" rel="noopener noreferrer"
+                    className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] truncate">
+                    {claimTxHash.slice(0, 20)}…{claimTxHash.slice(-8)} ↗
+                  </a>
+                )}
+                {claimError && (
+                  <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                    {(claimError as Error).message?.split('\n')[0]?.slice(0, 120)}
+                  </p>
+                )}
+              </>
+            ) : (
+              <>
+                <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 space-y-2">
+                  <p className="text-xs text-amber-400 font-medium">Unbonding in progress (~12h)</p>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Pending redemption (gMON)</span>
+                    <span className="text-white font-medium">{mgPendingGmon}</span>
+                  </div>
+                  <div className="flex justify-between text-xs">
+                    <span className="text-slate-400">Estimated assets at redemption (MON)</span>
+                    <span className="text-white font-medium">{mgPendingMonEst}</span>
+                  </div>
+                  <p className="text-xs text-slate-500">Return here to claim once unbonding completes.</p>
+                </div>
+                <Btn
+                  label="Claim MON"
+                  onClick={handleMagmaClaim}
+                  disabled={true}
+                />
+              </>
+            )}
+          </div>
+        )}
+      </div>
+    )
+  }
+
+  // ── Non-Fastlane UI (Magma / Kintsu) ─────────────────────────────────────
   return (
     <div className="space-y-4">
-      <AmountInput label="You deposit" token={pool.asset} value={amount} onChange={setAmount} max={balStr} />
-
-      <div className="flex justify-between text-xs px-0.5">
-        <span className="text-slate-500">Supply APY</span>
-        <span className="text-emerald-400 font-semibold">{pool.apy.toFixed(2)}%</span>
-      </div>
-
-      <Steps steps={[`Approve ${pool.asset}`, `Deposit ${pool.asset}`]} current={currentStep} />
-
-      {approveTx.isSuccess && currentStep === 2 && (
-        <p className="text-center text-xs text-slate-600">Approval confirmed · now deposit</p>
+      {/* Your balance */}
+      {lstBalStr && (
+        <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 flex items-center justify-between">
+          <span className="text-xs text-slate-500">Your {receipt} balance</span>
+          <span className="text-sm font-semibold text-white">{Number(lstBalStr).toFixed(6)} {receipt}</span>
+        </div>
       )}
 
-      <Btn label={btnLabel} onClick={handleAction} disabled={!address || parsedAmt === 0n || isPending || isSuccess} />
+      {/* Magma: pending state */}
+      {magma && hasPending && !hasClaimable && (
+        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 space-y-2">
+          <p className="text-xs text-amber-400 font-medium">Unbonding in progress (~12h)</p>
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-400">Pending</span>
+            <span className="text-white font-medium">{pendingGmon.toFixed(6)} gMON</span>
+          </div>
+          {pendingMonEst != null && (
+            <div className="flex justify-between text-xs">
+              <span className="text-slate-400">Estimated receive</span>
+              <span className="text-emerald-400 font-medium">≈ {pendingMonEst.toFixed(4)} MON</span>
+            </div>
+          )}
+          <p className="text-xs text-slate-500">Only 1 redemption at a time. Return here to claim when ready.</p>
+        </div>
+      )}
+
+      {/* Magma: claimable */}
+      {magma && hasClaimable && (
+        <div className="space-y-3">
+          <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-3">
+            <p className="text-xs text-emerald-400 font-medium">Ready to claim</p>
+            <p className="text-xs text-slate-400 mt-1">{Number(formatUnits(claimableShares as bigint, 18)).toFixed(6)} gMON claimable</p>
+          </div>
+          <Btn
+            label={claimIsSuccess ? '✓ Claimed' : claimIsSigning ? 'Confirm in wallet…' : claimIsConfirming ? 'Transaction pending…' : 'Claim MON'}
+            onClick={handleMagmaClaim}
+            disabled={claimPending || claimIsSuccess}
+          />
+          {claimTxHash && (
+            <a href={`https://monadexplorer.com/tx/${claimTxHash}`} target="_blank" rel="noopener noreferrer"
+              className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+              {claimTxHash.slice(0, 20)}…{claimTxHash.slice(-8)} ↗
+            </a>
+          )}
+          {claimError && (
+            <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+              {(claimError as Error).message?.split('\n')[0]?.slice(0, 120)}
+            </p>
+          )}
+          <div className="border-t border-[#1a2535] pt-2">
+            <p className="text-xs text-slate-500 text-center">Or request another unstake below</p>
+          </div>
+        </div>
+      )}
+
+      {/* Request unstake form */}
+      {!(magma && hasPending && !hasClaimable) && (
+        <>
+          <AmountInput label="Amount to unstake" token={receipt} value={amount} onChange={setAmount} max={lstBalStr} logo={TOKEN_LOGO[receipt]} />
+
+          {apriori && (
+            <p className="text-xs text-slate-400 bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3">
+              After requesting, visit{' '}
+              <a href="https://app.apr.io" target="_blank" rel="noopener noreferrer" className="text-[#CC3BFF] hover:text-[#BFA2FF]">
+                app.apr.io ↗
+              </a>{' '}
+              to claim your MON after the unbonding period.
+            </p>
+          )}
+          <Btn
+            label={isSuccess ? '✓ Request submitted' : isSigning ? 'Confirm in wallet…' : isConfirming ? 'Transaction pending…' : `Request Unstake ${receipt}`}
+            onClick={handleUnstake}
+            disabled={!addr || parsedShares === 0n || isPending || isSuccess}
+          />
+        </>
+      )}
 
       {txHash && (
         <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
@@ -326,52 +1652,226 @@ function MorphoFlow({ pool, address }: { pool: LendingPool; address?: string }) 
   )
 }
 
-// ── Neverland lending flow (Aave V3: approve → supply, with MON→WMON wrap) ────
-const WMON_ADDR = '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A' as `0x${string}`
-const WMON_DEPOSIT_ABI = [{ name: 'deposit', type: 'function', stateMutability: 'payable', inputs: [], outputs: [] }] as const
-
-function NeverlandFlow({ pool, address }: { pool: LendingPool; address?: string }) {
+// ── Morpho lending flow (ERC4626: deposit + withdraw) ─────────────────────────
+function MorphoFlow({ pool, address }: { pool: LendingPool; address?: string }) {
+  const [tab, setTab] = useState<'deposit' | 'withdraw'>('deposit')
   const [amount, setAmount] = useState('')
-  const info = NEVERLAND_RESERVES[pool.id]
-  if (!info) return <p className="text-xs text-slate-500 text-center py-4">Reserve config not found for {pool.id}</p>
+  const info = MORPHO_VAULTS[pool.id]
+  if (!info) return <p className="text-xs text-slate-500 text-center py-4">Vault config not found for {pool.id}</p>
 
-  const { asset: assetAddr, decimals } = info
-  // MON/WMON pools: asset address = WMON ERC20, but users hold native MON
-  const isNativeMON = assetAddr.toLowerCase() === WMON_ADDR.toLowerCase()
+  const { vault, asset: assetAddr, decimals } = info
   const parsedAmt = amount && Number(amount) > 0 ? parseUnits(amount, decimals) : 0n
 
-  // Native MON balance (for display on MON/WMON pools)
-  const { data: nativeBal } = useBalance({
-    address: address as `0x${string}` | undefined,
-    query: { enabled: !!address && isNativeMON },
-  })
-
-  // ERC20 balance (WMON or other asset — needed for step logic)
-  const { data: erc20BalRaw } = useReadContract({
+  // Deposit: wallet asset balance
+  const { data: balRaw } = useReadContract({
     address: assetAddr,
     abi: ERC20_ABI,
     functionName: 'balanceOf',
     args: [address as `0x${string}`],
     query: { enabled: !!address },
   })
+  const balStr = balRaw !== undefined ? (Number(balRaw) / 10 ** decimals).toFixed(6) : undefined
 
-  // Display balance: native MON for WMON pools, ERC20 otherwise
-  const displayBal = isNativeMON
-    ? (nativeBal ? (Number(nativeBal.value) / 10 ** nativeBal.decimals).toString() : undefined)
-    : (erc20BalRaw !== undefined ? (Number(erc20BalRaw) / 10 ** decimals).toString() : undefined)
-
+  // Deposit: allowance
   const { data: allowance } = useReadContract({
     address: assetAddr,
     abi: ERC20_ABI,
     functionName: 'allowance',
-    args: [address as `0x${string}`, NEVERLAND.pool],
+    args: [address as `0x${string}`, vault],
     query: { enabled: !!address },
   })
 
-  const isApproved = parsedAmt > 0n && (allowance ?? 0n) >= parsedAmt
-  const hasSufficientWMON = (erc20BalRaw ?? 0n) >= parsedAmt
+  // Withdraw: vault share balance
+  const { data: sharesRaw } = useReadContract({
+    address: vault,
+    abi: ERC4626_ABI,
+    functionName: 'balanceOf',
+    args: [address as `0x${string}`],
+    query: { enabled: !!address },
+  })
 
-  // Step: for MON→WMON pool: 1=wrap, 2=approve, 3=supply. Others: 1=approve, 2=supply
+  // Withdraw: convert shares → underlying asset for display & MAX
+  const { data: assetsFromShares } = useReadContract({
+    address: vault,
+    abi: ERC4626_ABI,
+    functionName: 'convertToAssets',
+    args: [sharesRaw ?? 0n],
+    query: { enabled: !!address && (sharesRaw ?? 0n) > 0n },
+  })
+  const depositedStr = assetsFromShares !== undefined
+    ? (Number(assetsFromShares) / 10 ** decimals).toFixed(6)
+    : undefined
+
+  // ── Deposit flow ──
+  const isApproved = parsedAmt > 0n && (allowance ?? 0n) >= parsedAmt
+  const depStep = isApproved ? 2 : 1
+
+  const approveWrite = useWriteContract()
+  const approveTx   = useWaitForTransactionReceipt({ hash: approveWrite.data })
+  const depositWrite = useWriteContract()
+  const depositTx   = useWaitForTransactionReceipt({ hash: depositWrite.data })
+
+  const depIsPending = approveWrite.isPending || depositWrite.isPending || approveTx.isLoading || depositTx.isLoading
+  const depIsSuccess = depositTx.isSuccess
+  const depTxHash    = depositWrite.data ?? approveWrite.data
+  const depError     = approveWrite.error ?? approveTx.error ?? depositWrite.error ?? depositTx.error
+
+  function handleDeposit() {
+    if (!address || parsedAmt === 0n || depIsPending) return
+    const receiver = address as `0x${string}`
+    if (depStep === 1) {
+      approveWrite.writeContract({ address: assetAddr, abi: ERC20_ABI, functionName: 'approve', args: [vault, parsedAmt] })
+    } else {
+      depositWrite.writeContract({ address: vault, abi: ERC4626_ABI, functionName: 'deposit', args: [parsedAmt, receiver] })
+    }
+  }
+
+  const depBtnLabel = depIsSuccess                                          ? `✓ Deposited ${amount} ${pool.asset}`
+    : approveWrite.isPending || depositWrite.isPending                      ? 'Confirm in wallet…'
+    : approveTx.isLoading || depositTx.isLoading                           ? 'Transaction pending…'
+    : depStep === 1                                                         ? `Approve ${pool.asset}`
+                                                                            : `Deposit ${pool.asset}`
+
+  // ── Withdraw flow (ERC4626 redeem — no approve needed) ──
+  const redeemWrite = useWriteContract()
+  const redeemTx   = useWaitForTransactionReceipt({ hash: redeemWrite.data })
+
+  const wdIsPending = redeemWrite.isPending || redeemTx.isLoading
+  const wdIsSuccess = redeemTx.isSuccess
+  const wdTxHash    = redeemWrite.data
+  const wdError     = redeemWrite.error ?? redeemTx.error
+
+  // Compute shares to redeem: full redeem when MAX clicked, proportional otherwise
+  const isMax = depositedStr !== undefined && amount === depositedStr
+  const parsedShares: bigint = (() => {
+    if (!sharesRaw || sharesRaw === 0n || parsedAmt === 0n) return 0n
+    if (isMax) return sharesRaw
+    if (!assetsFromShares || assetsFromShares === 0n) return 0n
+    return (sharesRaw * parsedAmt) / assetsFromShares
+  })()
+
+  function handleWithdraw() {
+    if (!address || parsedShares === 0n || wdIsPending) return
+    const addr = address as `0x${string}`
+    redeemWrite.writeContract({ address: vault, abi: ERC4626_ABI, functionName: 'redeem', args: [parsedShares, addr, addr] })
+  }
+
+  const wdBtnLabel = wdIsSuccess           ? `✓ Withdrawn ${amount} ${pool.asset}`
+    : redeemWrite.isPending                ? 'Confirm in wallet…'
+    : redeemTx.isLoading                   ? 'Transaction pending…'
+                                           : `Withdraw ${pool.asset}`
+
+  const tabCls = (t: 'deposit' | 'withdraw') =>
+    `flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${tab === t ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`
+
+  return (
+    <div className="space-y-4">
+      {/* Tab switcher */}
+      <div className="flex gap-1 bg-[#0a1220] border border-[#1a2535] rounded-xl p-1">
+        <button className={tabCls('deposit')}  onClick={() => { setTab('deposit');  setAmount('') }}>Deposit</button>
+        <button className={tabCls('withdraw')} onClick={() => { setTab('withdraw'); setAmount('') }}>Withdraw</button>
+      </div>
+
+      {tab === 'deposit' ? (
+        <>
+          <AmountInput label="You deposit" token={pool.asset} value={amount} onChange={setAmount} max={balStr} />
+
+          <div className="flex justify-between text-xs px-0.5">
+            <span className="text-slate-500">Supply APY</span>
+            <span className="text-emerald-400 font-semibold">{pool.apy.toFixed(2)}%</span>
+          </div>
+
+          <Steps steps={[`Approve ${pool.asset}`, `Deposit ${pool.asset}`]} current={depStep} />
+
+          {approveTx.isSuccess && depStep === 2 && (
+            <p className="text-center text-xs text-slate-600">Approval confirmed · now deposit</p>
+          )}
+
+          <Btn label={depBtnLabel} onClick={handleDeposit} disabled={!address || parsedAmt === 0n || depIsPending || depIsSuccess} />
+
+          {depTxHash && (
+            <a href={`https://monadexplorer.com/tx/${depTxHash}`} target="_blank" rel="noopener noreferrer"
+              className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+              {depTxHash.slice(0, 20)}…{depTxHash.slice(-8)} ↗
+            </a>
+          )}
+          {depError && (
+            <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+              {(depError as Error).message?.split('\n')[0]?.slice(0, 120)}
+            </p>
+          )}
+        </>
+      ) : (
+        <>
+          <AmountInput label="You withdraw" token={pool.asset} value={amount} onChange={setAmount} max={depositedStr} />
+
+          {depositedStr !== undefined && (
+            <div className="flex justify-between text-xs px-0.5">
+              <span className="text-slate-500">Deposited</span>
+              <span className="text-slate-300 font-semibold">{Number(depositedStr).toFixed(4)} {pool.asset}</span>
+            </div>
+          )}
+
+          <Btn label={wdBtnLabel} onClick={handleWithdraw} disabled={!address || parsedShares === 0n || wdIsPending || wdIsSuccess} />
+
+          {wdTxHash && (
+            <a href={`https://monadexplorer.com/tx/${wdTxHash}`} target="_blank" rel="noopener noreferrer"
+              className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+              {wdTxHash.slice(0, 20)}…{wdTxHash.slice(-8)} ↗
+            </a>
+          )}
+          {wdError && (
+            <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+              {(wdError as Error).message?.split('\n')[0]?.slice(0, 120)}
+            </p>
+          )}
+        </>
+      )}
+    </div>
+  )
+}
+
+// ── Neverland lending flow (Aave V3: approve → supply, with MON→WMON wrap) ────
+const WMON_ADDR = '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A' as `0x${string}`
+const WMON_DEPOSIT_ABI = [{ name: 'deposit', type: 'function', stateMutability: 'payable', inputs: [], outputs: [] }] as const
+
+function NeverlandFlow({ pool, address }: { pool: LendingPool; address?: string }) {
+  const [tab, setTab]             = useState<'deposit' | 'withdraw'>('deposit')
+  const [amount, setAmount]       = useState('')      // deposit amount
+  const [withdrawAmt, setWdAmt]  = useState('')       // withdraw amount
+
+  const info = NEVERLAND_RESERVES[pool.id]
+  if (!info) return <p className="text-xs text-slate-500 text-center py-4">Reserve config not found for {pool.id}</p>
+
+  const { asset: assetAddr, decimals } = info
+  const isNativeMON = assetAddr.toLowerCase() === WMON_ADDR.toLowerCase()
+  const displaySym  = isNativeMON ? 'MON' : pool.asset
+  const withdrawSym = isNativeMON ? 'WMON' : pool.asset  // withdraw always returns ERC20
+
+  // ── Deposit hooks ────────────────────────────────────────────────────────────
+  const parsedAmt = amount && Number(amount) > 0 ? parseUnits(amount, decimals) : 0n
+
+  const { data: nativeBal } = useBalance({
+    address: address as `0x${string}` | undefined,
+    query: { enabled: !!address && isNativeMON },
+  })
+  const { data: erc20BalRaw } = useReadContract({
+    address: assetAddr, abi: ERC20_ABI, functionName: 'balanceOf',
+    args: [address as `0x${string}`],
+    query: { enabled: !!address },
+  })
+  // For native MON (WMON pool): reserve 0.02 MON for gas so wrap tx doesn't fail
+  const displayBal = isNativeMON
+    ? (nativeBal ? Math.max(0, Number(nativeBal.value) / 10 ** nativeBal.decimals - 0.02).toFixed(6) : undefined)
+    : (erc20BalRaw !== undefined ? (Number(erc20BalRaw) / 10 ** decimals).toString() : undefined)
+
+  const { data: allowance } = useReadContract({
+    address: assetAddr, abi: ERC20_ABI, functionName: 'allowance',
+    args: [address as `0x${string}`, NEVERLAND.pool],
+    query: { enabled: !!address },
+  })
+  const isApproved       = parsedAmt > 0n && (allowance ?? 0n) >= parsedAmt
+  const hasSufficientWMON = (erc20BalRaw ?? 0n) >= parsedAmt
   const currentStep = isNativeMON
     ? (!hasSufficientWMON ? 1 : !isApproved ? 2 : 3)
     : (!isApproved ? 1 : 2)
@@ -402,51 +1902,127 @@ function NeverlandFlow({ pool, address }: { pool: LendingPool; address?: string 
     }
   }
 
-  const steps = isNativeMON
-    ? ['Wrap MON', 'Approve WMON', 'Supply WMON']
-    : [`Approve ${pool.asset}`, `Supply ${pool.asset}`]
-
-  const btnLabel = isSuccess     ? `✓ Supplied ${amount} ${isNativeMON ? 'MON' : pool.asset}`
-    : isSigning                  ? 'Confirm in wallet…'
-    : isWaiting                  ? 'Transaction pending…'
+  const steps    = isNativeMON ? ['Wrap MON', 'Approve WMON', 'Supply WMON'] : [`Approve ${pool.asset}`, `Supply ${pool.asset}`]
+  const btnLabel = isSuccess ? `✓ Supplied ${amount} ${displaySym}`
+    : isSigning ? 'Confirm in wallet…' : isWaiting ? 'Transaction pending…'
     : isNativeMON && currentStep === 1 ? 'Wrap MON → WMON'
     : isNativeMON && currentStep === 2 ? 'Approve WMON'
     : isNativeMON && currentStep === 3 ? 'Supply WMON'
-    : currentStep === 1          ? `Approve ${pool.asset}`
-                                 : `Supply ${pool.asset}`
+    : currentStep === 1 ? `Approve ${pool.asset}` : `Supply ${pool.asset}`
+
+  // ── Withdraw hooks ───────────────────────────────────────────────────────────
+  // aToken balance = deposited amount (1:1 with underlying in Aave V3)
+  const { data: userReserve } = useReadContract({
+    address: NEVERLAND_DATA_PROVIDER.address,
+    abi: NEVERLAND_DATA_PROVIDER.abi,
+    functionName: 'getUserReserveData',
+    args: [assetAddr, address as `0x${string}`],
+    query: { enabled: !!address },
+  })
+  const depositedRaw = userReserve ? userReserve[0] : 0n
+  const depositedBal = depositedRaw > 0n
+    ? Number(formatUnits(depositedRaw, decimals)).toFixed(6)
+    : undefined
+
+  const wdParsed   = withdrawAmt && Number(withdrawAmt) > 0 ? parseUnits(withdrawAmt, decimals) : 0n
+  // Use maxUint256 when user withdraws ≥99.9% of balance (avoids dust rounding errors)
+  const wdIsMax    = depositedRaw > 0n && wdParsed > 0n && wdParsed >= depositedRaw * 999n / 1000n
+  const wdWrite    = useWriteContract()
+  const wdTx       = useWaitForTransactionReceipt({ hash: wdWrite.data })
+  const wdIsPending = wdWrite.isPending || (wdTx.isFetching && !wdTx.isSuccess)
+  const wdIsSuccess = wdTx.isSuccess
+  const wdError     = wdWrite.error ?? wdTx.error
+
+  function handleWithdraw() {
+    if (!address || wdParsed === 0n || wdIsPending) return
+    wdWrite.writeContract({
+      address: NEVERLAND.pool,
+      abi: NEVERLAND.abi,
+      functionName: 'withdraw',
+      args: [assetAddr, wdIsMax ? maxUint256 : wdParsed, address as `0x${string}`],
+    })
+  }
 
   return (
     <div className="space-y-4">
-      <AmountInput
-        label="You supply"
-        token={isNativeMON ? 'MON' : pool.asset}
-        value={amount}
-        onChange={setAmount}
-        max={displayBal}
-      />
-      <div className="flex justify-between text-xs px-0.5">
-        <span className="text-slate-500">Supply APY</span>
-        <span className="text-emerald-400 font-semibold">{pool.apy.toFixed(2)}%</span>
+      {/* Deposit / Withdraw tabs */}
+      <div className="flex bg-[#0a1220] border border-[#1a2535] rounded-xl p-1 gap-1">
+        <button onClick={() => { setTab('deposit') }}
+          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${tab === 'deposit' ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+          Deposit
+        </button>
+        <button onClick={() => { setTab('withdraw') }}
+          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${tab === 'withdraw' ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+          Withdraw
+        </button>
       </div>
-      <Steps steps={steps} current={currentStep} />
-      {wrapTx.isSuccess && currentStep === 2 && (
-        <p className="text-center text-xs text-slate-600">Wrap confirmed · approve WMON next</p>
+
+      {tab === 'deposit' && (
+        <div className="space-y-4">
+          <AmountInput label="You supply" token={displaySym} value={amount} onChange={setAmount} max={displayBal} />
+          <div className="flex justify-between text-xs px-0.5">
+            <span className="text-slate-500">Supply APY</span>
+            <span className="text-emerald-400 font-semibold">{pool.apy.toFixed(2)}%</span>
+          </div>
+          <Steps steps={steps} current={currentStep} />
+          {wrapTx.isSuccess && currentStep === 2 && (
+            <p className="text-center text-xs text-slate-600">Wrap confirmed · approve WMON next</p>
+          )}
+          {approveTx.isSuccess && currentStep === (isNativeMON ? 3 : 2) && (
+            <p className="text-center text-xs text-slate-600">Approval confirmed · now supply</p>
+          )}
+          <Btn label={btnLabel} onClick={handleAction} disabled={!address || parsedAmt === 0n || isPending || isSuccess} />
+          {txHash && (
+            <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+              className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+              {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
+            </a>
+          )}
+          {error && (
+            <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+              {translateAaveError((error as Error).message)}
+            </p>
+          )}
+        </div>
       )}
-      {approveTx.isSuccess && currentStep === (isNativeMON ? 3 : 2) && (
-        <p className="text-center text-xs text-slate-600">Approval confirmed · now supply</p>
+
+      {tab === 'withdraw' && (
+        <div className="space-y-4">
+          {depositedBal ? (
+            <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-2.5 flex justify-between text-xs">
+              <span className="text-slate-500">Deposited</span>
+              <span className="text-white font-semibold">{depositedBal} {withdrawSym}</span>
+            </div>
+          ) : (
+            <p className="text-xs text-slate-500 text-center py-2">No deposit found for this wallet</p>
+          )}
+          {depositedBal && (
+            <>
+              <AmountInput label="You withdraw" token={withdrawSym} value={withdrawAmt} onChange={setWdAmt} max={depositedBal} />
+              <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 leading-relaxed">
+                Withdrawing collateral reduces your borrow capacity. Ensure health factor stays above 1.
+              </p>
+              <Btn
+                label={wdIsSuccess ? `✓ Withdrawn ${withdrawAmt} ${withdrawSym}` : wdIsPending ? 'Processing…' : `Withdraw ${withdrawSym}`}
+                onClick={handleWithdraw}
+                disabled={wdParsed === 0n || wdIsPending || wdIsSuccess}
+              />
+              {wdWrite.data && (
+                <a href={`https://monadexplorer.com/tx/${wdWrite.data}`} target="_blank" rel="noopener noreferrer"
+                  className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+                  {wdWrite.data.slice(0, 20)}…{wdWrite.data.slice(-8)} ↗
+                </a>
+              )}
+              {wdError && (
+                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                  {translateAaveError((wdError as Error).message)}
+                </p>
+              )}
+            </>
+          )}
+        </div>
       )}
-      <Btn label={btnLabel} onClick={handleAction} disabled={!address || parsedAmt === 0n || isPending || isSuccess} />
-      {txHash && (
-        <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
-          className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
-          {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
-        </a>
-      )}
-      {error && (
-        <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
-          {(error as Error).message?.split('\n')[0]?.slice(0, 120)}
-        </p>
-      )}
+
     </div>
   )
 }
@@ -477,166 +2053,260 @@ function translateAaveError(msg: string): string {
   return msg?.split('\n')[0]?.slice(0, 120) ?? 'Unknown error'
 }
 
-// ── Neverland borrow flow (Aave V3: no approve, just borrow) ─────────────────
-// Prerequisite: user must have already supplied collateral via lending flow.
-// interestRateMode = 2 (variable rate — Aave V3 only supports variable)
+// ── Neverland borrow flow (Aave V3) — Borrow + Repay tabs ────────────────────
+// Borrow: no approve needed, just call pool.borrow(). interestRateMode = 2 (variable).
+// Repay:  ERC20 approve first (debt + 0.1% buffer), then pool.repay(maxUint256) = repay all.
 function NeverlandBorrowFlow({ pool, address }: { pool: BorrowingPool; address?: string }) {
+  const [tab, setTab]     = useState<'borrow' | 'repay'>('borrow')
   const [amount, setAmount] = useState('')
+
   const info = NEVERLAND_BORROW_RESERVES[pool.id]
   if (!info) return <p className="text-xs text-slate-500 text-center py-4">Reserve config not found for {pool.id}</p>
 
   const { asset: assetAddr, decimals } = info
-  const sym = (pool as BorrowingPool).asset
+  const sym       = (pool as BorrowingPool).asset
   const parsedAmt = amount && Number(amount) > 0 ? parseUnits(amount, decimals) : 0n
 
-  // Account health from Pool contract — shows collateral & available borrows
+  // ── Borrow hooks ─────────────────────────────────────────────────────────────
   const { data: accountData } = useReadContract({
-    address: NEVERLAND.pool,
-    abi: NEVERLAND.abi,
-    functionName: 'getUserAccountData',
+    address: NEVERLAND.pool, abi: NEVERLAND.abi, functionName: 'getUserAccountData',
     args: [address as `0x${string}`],
     query: { enabled: !!address },
   })
-
-  // Asset price from PriceOracle — 8 decimal USD price
   const { data: assetPrice } = useReadContract({
-    address: NEVERLAND_ORACLE.address,
-    abi: NEVERLAND_ORACLE.abi,
-    functionName: 'getAssetPrice',
+    address: NEVERLAND_ORACLE.address, abi: NEVERLAND_ORACLE.abi, functionName: 'getAssetPrice',
     args: [assetAddr],
     query: { enabled: !!address },
   })
 
-  // Safe max borrow = (totalCollateral × liqThreshold / 10000 / 1.1) - totalDebt
-  // Matches Neverland's UI which targets HF ≥ 1.1, not the raw Aave availableBorrowsBase (HF → 1.0)
-  // accountData[0]=totalCollateralBase, [1]=totalDebtBase, [3]=liqThreshold (basis pts, 10000=100%)
-  // In bigint: (collateral × liqThreshold) / 11000 − debt  (÷11000 = ÷10000 then ÷1.1)
   const maxBorrowBase = (accountData && assetPrice && assetPrice > 0n)
     ? (accountData[0] * accountData[3]) / 11000n - accountData[1]
     : null
   const maxBorrowBigInt = (maxBorrowBase !== null && maxBorrowBase > 0n && assetPrice)
     ? (maxBorrowBase * BigInt(10 ** decimals)) / assetPrice
     : null
-  // Float only for display
-  const availableTokens = maxBorrowBigInt !== null
-    ? Number(maxBorrowBigInt) / 10 ** decimals
-    : null
-  const hasCollateral = accountData ? accountData[0] > 0n : false
+  const availableTokens = maxBorrowBigInt !== null ? Number(maxBorrowBigInt) / 10 ** decimals : null
+  const hasCollateral   = accountData ? accountData[0] > 0n : false
 
-  // Projected health factor after this borrow
-  // newBorrowUSD (8 dec) = entered token amount × oracle price (8 dec per whole token)
-  // projectedHF = (collateral × liqThreshold%) / (currentDebt + newBorrowUSD)
   const projectedHF = (() => {
     if (!accountData) return null
-    const colUSD   = Number(accountData[0])  // 8 dec
-    const debtUSD  = Number(accountData[1])  // 8 dec
-    const liqThres = Number(accountData[3])  // basis points, 10000 = 100%
+    const colUSD  = Number(accountData[0])
+    const debtUSD = Number(accountData[1])
+    const liqThres = Number(accountData[3])
     const newBorrowUSD = (amount && Number(amount) > 0 && assetPrice)
-      ? Number(amount) * Number(assetPrice)  // token_amount × price(8dec) → USD(8dec)
-      : 0
+      ? Number(amount) * Number(assetPrice) : 0
     const denom = debtUSD + newBorrowUSD
     if (denom === 0) return Infinity
     return (colUSD * liqThres / 10000) / denom
   })()
 
-  const { writeContract, data: txHash, isPending: isSigning, error: writeError, reset } = useWriteContract()
-  const { isLoading: isConfirming, isSuccess, error: receiptError } = useWaitForTransactionReceipt({ hash: txHash })
-
-  const isPending = isSigning || isConfirming
-  const error = writeError ?? receiptError
+  const borrowWrite = useWriteContract()
+  const borrowTx    = useWaitForTransactionReceipt({ hash: borrowWrite.data })
+  const bwIsPending = borrowWrite.isPending || borrowTx.isLoading
+  const bwIsSuccess = borrowTx.isSuccess
+  const bwError     = borrowWrite.error ?? borrowTx.error
 
   function handleBorrow() {
-    if (!address || parsedAmt === 0n || isPending) return
-    writeContract({
-      address: NEVERLAND.pool,
-      abi: NEVERLAND.abi,
-      functionName: 'borrow',
+    if (!address || parsedAmt === 0n || bwIsPending) return
+    borrowWrite.writeContract({
+      address: NEVERLAND.pool, abi: NEVERLAND.abi, functionName: 'borrow',
       args: [assetAddr, parsedAmt, 2n, 0, address as `0x${string}`],
     })
   }
 
-  const btnLabel = isSuccess        ? `✓ Borrowed ${amount} ${sym}`
-    : isSigning                     ? 'Confirm in wallet…'
-    : isConfirming                  ? 'Transaction pending…'
-                                    : `Borrow ${sym}`
+  // ── Repay hooks ──────────────────────────────────────────────────────────────
+  // Read exact variable debt, wallet balance, and allowance
+  const { data: userReserve } = useReadContract({
+    address: NEVERLAND_DATA_PROVIDER.address, abi: NEVERLAND_DATA_PROVIDER.abi,
+    functionName: 'getUserReserveData',
+    args: [assetAddr, address as `0x${string}`],
+    query: { enabled: !!address },
+  })
+  const debtRaw = userReserve ? userReserve[2] : 0n  // currentVariableDebt
+
+  const { data: assetWalletBal } = useReadContract({
+    address: assetAddr, abi: ERC20_ABI, functionName: 'balanceOf',
+    args: [address as `0x${string}`],
+    query: { enabled: !!address },
+  })
+  const insufficientBalance = assetWalletBal !== undefined && debtRaw > 0n && assetWalletBal < debtRaw
+  const debtStr = debtRaw > 0n ? Number(formatUnits(debtRaw, decimals)).toFixed(6) : '0'
+
+  const { data: repayAllowance } = useReadContract({
+    address: assetAddr, abi: ERC20_ABI, functionName: 'allowance',
+    args: [address as `0x${string}`, NEVERLAND.pool],
+    query: { enabled: !!address },
+  })
+  const isRepayApproved = debtRaw > 0n && (repayAllowance ?? 0n) >= debtRaw
+
+  const repayApproveWrite = useWriteContract()
+  const repayApproveTx    = useWaitForTransactionReceipt({ hash: repayApproveWrite.data })
+  const repayWrite        = useWriteContract()
+  const repayTx           = useWaitForTransactionReceipt({ hash: repayWrite.data })
+
+  const repayStep      = (isRepayApproved || repayApproveTx.isSuccess) ? 2 : 1
+  const repayIsPending = repayApproveWrite.isPending || repayApproveTx.isLoading || repayWrite.isPending || repayTx.isLoading
+  const repayIsSuccess = repayTx.isSuccess
+  const repayError     = repayApproveWrite.error ?? repayApproveTx.error ?? repayWrite.error ?? repayTx.error
+
+  function handleRepay() {
+    if (!address || debtRaw === 0n || repayIsPending) return
+    if (repayStep === 1) {
+      repayApproveWrite.writeContract({
+        address: assetAddr, abi: ERC20_ABI, functionName: 'approve',
+        args: [NEVERLAND.pool, maxUint256],
+      })
+    } else {
+      repayWrite.writeContract({
+        address: NEVERLAND.pool, abi: NEVERLAND.abi, functionName: 'repay',
+        args: [assetAddr, assetWalletBal ?? debtRaw, 2n, address as `0x${string}`],
+      })
+    }
+  }
+
+  const repayTxHash    = repayWrite.data ?? repayApproveWrite.data
 
   return (
     <div className="space-y-4">
-      {/* Collateral warning if no collateral supplied */}
-      {address && !hasCollateral && (
-        <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3 text-xs text-amber-300 leading-relaxed">
-          You have no collateral in Neverland. Supply assets via the Lending pools first.
+      {/* Borrow / Repay tabs */}
+      <div className="flex bg-[#0a1220] border border-[#1a2535] rounded-xl p-1 gap-1">
+        <button onClick={() => setTab('borrow')}
+          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${tab === 'borrow' ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+          Borrow
+        </button>
+        <button onClick={() => setTab('repay')}
+          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${tab === 'repay' ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+          Repay
+        </button>
+      </div>
+
+      {tab === 'borrow' && (
+        <div className="space-y-4">
+          {address && !hasCollateral ? (
+            <>
+              <div className="bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-4 space-y-2">
+                <p className="text-sm font-semibold text-amber-400">No collateral in Neverland</p>
+                <p className="text-xs text-slate-400 leading-relaxed">
+                  Supply any asset as collateral in a Neverland lending pool first, then return here to borrow.
+                </p>
+              </div>
+              <a href="/?tab=lending&protocol=Neverland"
+                className="flex items-center justify-center gap-1.5 w-full rounded-xl py-3 text-sm font-semibold
+                  bg-[#1a2535] text-slate-300 hover:text-white border border-[#2a3545] hover:border-blue-500/40 transition-all">
+                View Neverland Lending Pools →
+              </a>
+            </>
+          ) : null}
+          {!address || hasCollateral ? <>
+          {address && hasCollateral && availableTokens !== null && (
+            <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Available to borrow</span>
+                <span className="text-white font-medium">{availableTokens.toFixed(decimals <= 6 ? 2 : 4)} {sym}</span>
+              </div>
+              {projectedHF !== null && (
+                <div className="flex justify-between text-xs">
+                  <span className="text-slate-500">Health factor{amount && Number(amount) > 0 ? ' (after borrow)' : ''}</span>
+                  <span className={`font-semibold ${projectedHF === Infinity || projectedHF > 2 ? 'text-emerald-400' : projectedHF > 1.2 ? 'text-yellow-400' : 'text-rose-400'}`}>
+                    {projectedHF === Infinity ? '∞' : projectedHF.toFixed(2)}
+                  </span>
+                </div>
+              )}
+            </div>
+          )}
+          <AmountInput label="Amount to borrow" token={sym} value={amount} onChange={setAmount}
+            max={maxBorrowBigInt !== null ? (Number(maxBorrowBigInt * 997n / 1000n) / 10 ** decimals).toFixed(6) : undefined}
+          />
+          <div className="flex justify-between text-xs px-0.5">
+            <span className="text-slate-500">Borrow APR</span>
+            <span className="text-rose-400 font-semibold">{pool.apy.toFixed(2)}%</span>
+          </div>
+          {maxBorrowBigInt !== null && parsedAmt > maxBorrowBigInt && (
+            <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+              Exceeds available borrow capacity ({availableTokens?.toFixed(decimals <= 6 ? 2 : 4)} {sym})
+            </p>
+          )}
+          <Btn
+            label={bwIsSuccess ? `✓ Borrowed ${amount} ${sym}` : bwIsPending ? 'Confirm in wallet…' : `Borrow ${sym}`}
+            onClick={handleBorrow}
+            disabled={!address || parsedAmt === 0n || bwIsPending || bwIsSuccess || !hasCollateral || (maxBorrowBigInt !== null && parsedAmt > maxBorrowBigInt)}
+          />
+          {borrowWrite.data && (
+            <a href={`https://monadexplorer.com/tx/${borrowWrite.data}`} target="_blank" rel="noopener noreferrer"
+              className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+              {borrowWrite.data.slice(0, 20)}…{borrowWrite.data.slice(-8)} ↗
+            </a>
+          )}
+          {bwError && (
+            <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+              {translateAaveError((bwError as Error).message)}
+            </p>
+          )}
+          </> : null}
         </div>
       )}
 
-      {/* Account overview */}
-      {address && hasCollateral && availableTokens !== null && (
-        <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 space-y-2">
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-500">Available to borrow</span>
-            <span className="text-white font-medium">
-              {availableTokens.toFixed(decimals <= 6 ? 2 : 4)} {sym}
+      {tab === 'repay' && (
+        <div className="space-y-4">
+          <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-2.5 flex justify-between text-xs">
+            <span className="text-slate-500">Current debt</span>
+            <span className={`font-semibold ${debtRaw > 0n ? 'text-rose-400' : 'text-slate-500'}`}>
+              {debtStr} {sym}
             </span>
           </div>
-          {projectedHF !== null && (
-            <div className="flex justify-between text-xs">
-              <span className="text-slate-500">
-                Health factor{amount && Number(amount) > 0 ? ' (after borrow)' : ''}
-              </span>
-              <span className={`font-semibold ${
-                projectedHF === Infinity || projectedHF > 2  ? 'text-emerald-400'
-                : projectedHF > 1.2                          ? 'text-yellow-400'
-                :                                              'text-rose-400'
-              }`}>
-                {projectedHF === Infinity ? '∞' : projectedHF.toFixed(2)}
-              </span>
-            </div>
+          {debtRaw === 0n ? (
+            <p className="text-xs text-slate-500 text-center py-2">No outstanding debt for this asset</p>
+          ) : (
+            <>
+              <Steps steps={[`Approve ${sym}`, `Repay ${sym}`]} current={repayStep} />
+              {repayApproveTx.isSuccess && repayStep === 2 && (
+                <p className="text-center text-xs text-slate-600">Approval confirmed · now repay</p>
+              )}
+              <Btn
+                label={
+                  repayIsSuccess ? `✓ Repaid all ${sym}`
+                  : repayIsPending ? 'Confirm in wallet…'
+                  : repayStep === 1 ? `Approve ${sym}`
+                  : `Repay all ${sym}`
+                }
+                onClick={handleRepay}
+                disabled={debtRaw === 0n || repayIsPending || repayIsSuccess || insufficientBalance}
+              />
+              {repayTxHash && (
+                <a href={`https://monadexplorer.com/tx/${repayTxHash}`} target="_blank" rel="noopener noreferrer"
+                  className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+                  {repayTxHash.slice(0, 20)}…{repayTxHash.slice(-8)} ↗
+                </a>
+              )}
+              {insufficientBalance && (
+                <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
+                  Insufficient assets to repay. Please acquire more assets first.
+                </p>
+              )}
+              {repayError && (
+                <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+                  {translateAaveError((repayError as Error).message)}
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
-
-      <AmountInput
-        label="Amount to borrow"
-        token={sym}
-        value={amount}
-        onChange={setAmount}
-        max={maxBorrowBigInt !== null ? (Number(maxBorrowBigInt) / 10 ** decimals).toFixed(decimals) : undefined}
-      />
-
-      <div className="flex justify-between text-xs px-0.5">
-        <span className="text-slate-500">Borrow APR</span>
-        <span className="text-rose-400 font-semibold">{pool.apy.toFixed(2)}%</span>
-      </div>
-
-      {/* Warn if amount exceeds available borrow capacity */}
-      {maxBorrowBigInt !== null && parsedAmt > maxBorrowBigInt && (
-        <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2">
-          Exceeds available borrow capacity ({availableTokens?.toFixed(decimals <= 6 ? 2 : 4)} {sym})
-        </p>
-      )}
-
-      <Btn
-        label={btnLabel}
-        onClick={handleBorrow}
-        disabled={
-          !address || parsedAmt === 0n || isPending || isSuccess || !hasCollateral ||
-          (maxBorrowBigInt !== null && parsedAmt > maxBorrowBigInt)
-        }
-      />
-
-      {txHash && (
-        <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
-          className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
-          {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
-        </a>
-      )}
-      {error && (
-        <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
-          {translateAaveError((error as Error).message)}
-        </p>
-      )}
     </div>
   )
+}
+
+// ── Curvance error parser ──────────────────────────────────────────────────────
+// Maps known Curvance custom error selectors to human-readable messages.
+function parseCurvanceError(e: any): string {
+  const msg = (e as Error).message ?? ''
+  if (msg.includes('0xf25f18b2'))
+    return 'Curvance requires a 20-minute waiting period after depositing or borrowing. Please try again later.'
+  if (msg.includes('0xe6c95926'))
+    return 'Insufficient liquidity in the Curvance market. Try withdrawing a slightly smaller amount.'
+  if (msg.includes('0x5cf9e99a'))
+    return 'Amount too small after interest accrual. Try repaying the full balance.'
+  return msg.split('\n')[0]?.slice(0, 150) ?? 'Unknown error'
 }
 
 // ── Curvance lending flow — via Official Curvance SDK ─────────────────────────
@@ -677,8 +2347,12 @@ function CurvanceLendingFlow({ pool, address }: { pool: LendingPool; address?: s
   const { colSym, colDec } = info
 
   // Balances from SDK user cache (populated after reloadUserData)
-  const walletBal    = token ? token.getUserUnderlyingBalance(false).toFixed(6) : undefined
-  const depositedBal = token ? token.getUserCollateralAssets().toFixed(6) : undefined
+  // ROUND_DOWN prevents depositing/withdrawing more than user actually has
+  const walletBal           = token ? token.getUserUnderlyingBalance(false).toFixed(6, Decimal.ROUND_DOWN) : undefined
+  const depositedBalDecimal = token ? token.getUserCollateralAssets() : null
+  const depositedBal        = depositedBalDecimal?.toFixed(6)  // display only
+  // MAX button rounds DOWN — safeAmt in handleWithdraw catches the tiny undershoot and uses exact Decimal
+  const depositedMax        = depositedBalDecimal?.toFixed(6, Decimal.ROUND_DOWN)
 
   const decimalAmt = amount && Number(amount) > 0 ? new Decimal(amount) : null
   const isPending  = txState === 'approving' || txState === 'depositing' || txState === 'withdrawing'
@@ -712,7 +2386,7 @@ function CurvanceLendingFlow({ pool, address }: { pool: LendingPool; address?: s
       setAmount('')
       refresh()
     } catch (e: any) {
-      setTxError((e as Error).message?.split('\n')[0]?.slice(0, 120))
+      setTxError(parseCurvanceError(e))
       setTxState('error')
     }
   }
@@ -722,15 +2396,20 @@ function CurvanceLendingFlow({ pool, address }: { pool: LendingPool; address?: s
     resetTx()
     try {
       setTxState('withdrawing')
+      // Cap at exact SDK Decimal when amount ≈ max to prevent BaseCToken__InsufficientLiquidity.
+      // toFixed(6, ROUND_DOWN) may still be slightly under — safeAmt uses exact Decimal to be safe.
+      const safeAmt = depositedBalDecimal && decimalAmt.gte(depositedBalDecimal.mul('0.999'))
+        ? depositedBalDecimal   // full withdrawal — use SDK's own Decimal (exact precision)
+        : decimalAmt
       // redeemCollateral: remove from collateral + redeem in 1 tx (no separate approval needed)
-      const tx = await token.redeemCollateral(decimalAmt)
+      const tx = await token.redeemCollateral(safeAmt)
       setTxHash(tx.hash)
       await tx.wait()
       setTxState('success')
       setAmount('')
       refresh()
     } catch (e: any) {
-      setTxError((e as Error).message?.split('\n')[0]?.slice(0, 120))
+      setTxError(parseCurvanceError(e))
       setTxState('error')
     }
   }
@@ -795,7 +2474,7 @@ function CurvanceLendingFlow({ pool, address }: { pool: LendingPool; address?: s
               <span className="text-white font-semibold">{depositedBal} {colSym}</span>
             </div>
           )}
-          <AmountInput label="You withdraw" token={colSym} value={amount} onChange={setAmount} max={depositedBal} />
+          <AmountInput label="You withdraw" token={colSym} value={amount} onChange={setAmount} max={depositedMax} />
           <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 leading-relaxed">
             Withdrawing collateral reduces your borrow capacity. Ensure health factor stays above 1.
           </p>
@@ -830,30 +2509,73 @@ function CurvanceLendingFlow({ pool, address }: { pool: LendingPool; address?: s
 // SDK reads on-chain state: colToken.getUserCollateral() > 0 → has collateral.
 // market.userRemainingCredit → accurate credit limit (0.1% buffer built-in).
 // borrowToken.borrow(Decimal) → sends tx with oracle price updates (no approval needed).
+// Displays: LTV%, max borrowable (with MAX button), health factor preview.
 function CurvanceBorrowFlow({ pool, address }: { pool: BorrowingPool; address?: string }) {
+  const [tab, setTab]            = useState<'borrow' | 'repay'>('borrow')
   const [borrowAmt, setBorrowAmt] = useState('')
   const [txState, setTxState]    = useState<'idle' | 'pending' | 'success' | 'error'>('idle')
   const [txHash, setTxHash]      = useState<string>()
   const [txError, setTxError]    = useState<string>()
+  // Max borrowable (async, fetched once after SDK loads)
+  const [maxBorrowable, setMaxBorrowable] = useState<Decimal | null>(null)
+  // Health factor preview: null = no amount typed, 'loading' = fetching, Decimal = result
+  const [healthPreview, setHealthPreview] = useState<Decimal | null | 'loading'>(null)
 
   const info = CURVANCE_BORROW_MARKETS[pool.id]
 
-  // SDK hook — always called unconditionally
+  // SDK hook — always called unconditionally (hooks rules)
   const { colToken, loanToken, market, loading: sdkLoading, error: sdkError, refresh } = useCurvanceBorrow(
     info?.colCToken  ?? '0x0000000000000000000000000000000000000001',
     info?.loanCToken ?? '0x0000000000000000000000000000000000000002',
   )
 
+  // Fetch max borrowable once SDK is ready (refetches after each borrow via refresh())
+  useEffect(() => {
+    if (!loanToken) { setMaxBorrowable(null); return }
+    loanToken.getMaxBorrowable().then(setMaxBorrowable).catch(() => setMaxBorrowable(null))
+  }, [loanToken])
+
+  // Debounced health factor preview — recalculates 600ms after user stops typing
+  useEffect(() => {
+    if (!market || !loanToken || !borrowAmt || Number(borrowAmt) <= 0) {
+      setHealthPreview(null)
+      return
+    }
+    setHealthPreview('loading')
+    const timer = setTimeout(async () => {
+      try {
+        const health = await market.previewPositionHealthBorrow(loanToken, new Decimal(borrowAmt))
+        setHealthPreview(health)   // null = infinite (SDK returns null when health is unlimited)
+      } catch {
+        setHealthPreview(null)
+      }
+    }, 600)
+    return () => clearTimeout(timer)
+  }, [borrowAmt, loanToken, market])
+
+  // Early returns AFTER all hooks
   if (!info) return <p className="text-xs text-slate-500 text-center py-4">Market config not found for {pool.id}</p>
   if (!address) return <p className="text-xs text-slate-500 text-center py-4">Connect wallet to borrow</p>
 
-  const { colSym, loanSym } = info
+  const { colSym, loanSym, loanDec } = info
 
-  // Collateral + credit limit from SDK (requires user data loaded)
+  // Collateral + credit from SDK
   const hasCollateral  = colToken ? colToken.getUserCollateral(false).greaterThan(0) : false
   const creditLimitUsd = market ? market.userRemainingCredit : null
+  // LTV ratio from colToken (e.g. Decimal(0.75) = 75%)
+  const ltv = colToken ? colToken.ltv() : null
 
   const decimalAmt = borrowAmt && Number(borrowAmt) > 0 ? new Decimal(borrowAmt) : null
+  // MAX button value: full precision, ROUND_DOWN to avoid exceeding credit
+  const maxBorrowStr = maxBorrowable?.gt(0)
+    ? maxBorrowable.toDecimalPlaces(Math.min(loanDec, 6), Decimal.ROUND_DOWN).toString()
+    : undefined
+
+  // Health factor display (SDK returns HF - 1; add 1 to get standard HF like Aave)
+  const hfDecimal = healthPreview !== null && healthPreview !== 'loading' ? healthPreview : null
+  const hf = hfDecimal !== null ? hfDecimal.plus(1) : null
+  const hfColor = !hf ? '' : hf.gte(1.5) ? 'text-emerald-400' : hf.gte(1.2) ? 'text-amber-400' : 'text-rose-400'
+  const hfLabel = !hf ? '' : hf.gte(1.5) ? 'Safe' : hf.gte(1.2) ? 'Moderate' : 'At risk'
 
   async function handleBorrow() {
     if (!loanToken || !decimalAmt || txState === 'pending') return
@@ -861,15 +2583,16 @@ function CurvanceBorrowFlow({ pool, address }: { pool: BorrowingPool; address?: 
     setTxHash(undefined)
     setTxError(undefined)
     try {
-      // SDK's borrow() sends oracle price updates automatically (Redstone multicall)
       const tx = await loanToken.borrow(decimalAmt)
       setTxHash(tx.hash)
       await tx.wait()
       setTxState('success')
       setBorrowAmt('')
+      setMaxBorrowable(null)
+      setHealthPreview(null)
       refresh()
     } catch (e: any) {
-      setTxError((e as Error).message?.split('\n')[0]?.slice(0, 120))
+      setTxError(parseCurvanceError(e))
       setTxState('error')
     }
   }
@@ -877,10 +2600,13 @@ function CurvanceBorrowFlow({ pool, address }: { pool: BorrowingPool; address?: 
   if (sdkLoading) return (
     <p className="text-center text-xs text-slate-500 py-4">Loading Curvance market data…</p>
   )
-
   if (sdkError) return (
     <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">{sdkError}</p>
   )
+
+  // Find the lending pool on Monatrix that accepts this collateral token
+  const lendingPoolId = Object.entries(CURVANCE_MARKETS)
+    .find(([, m]) => m.colCToken.toLowerCase() === info.colCToken.toLowerCase())?.[0]
 
   if (!hasCollateral) return (
     <div className="space-y-4">
@@ -891,20 +2617,40 @@ function CurvanceBorrowFlow({ pool, address }: { pool: BorrowingPool; address?: 
           then return here to borrow.
         </p>
       </div>
-      <a
-        href="https://monad.curvance.com"
-        target="_blank"
-        rel="noopener noreferrer"
-        className="flex items-center justify-center gap-1.5 w-full rounded-xl py-3 text-sm font-semibold
-          bg-[#1a2535] text-slate-300 hover:text-white border border-[#2a3545] hover:border-[#CC3BFF]/40 transition-all"
-      >
-        Go to Curvance ↗
-      </a>
+      {lendingPoolId ? (
+        <a href={`/pools/${lendingPoolId}`}
+          className="flex items-center justify-center gap-1.5 w-full rounded-xl py-3 text-sm font-semibold
+            bg-[#1a2535] text-slate-300 hover:text-white border border-[#2a3545] hover:border-[#CC3BFF]/40 transition-all">
+          Deposit {colSym} collateral →
+        </a>
+      ) : (
+        <a href="https://monad.curvance.com" target="_blank" rel="noopener noreferrer"
+          className="flex items-center justify-center gap-1.5 w-full rounded-xl py-3 text-sm font-semibold
+            bg-[#1a2535] text-slate-300 hover:text-white border border-[#2a3545] hover:border-[#CC3BFF]/40 transition-all">
+          Go to Curvance ↗
+        </a>
+      )}
     </div>
   )
 
   return (
     <div className="space-y-4">
+      {/* Borrow / Repay tabs */}
+      <div className="flex bg-[#0a1220] border border-[#1a2535] rounded-xl p-1 gap-1">
+        <button onClick={() => setTab('borrow')}
+          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${tab === 'borrow' ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+          Borrow
+        </button>
+        <button onClick={() => setTab('repay')}
+          className={`flex-1 py-2 rounded-lg text-xs font-semibold transition-all ${tab === 'repay' ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`}>
+          Repay
+        </button>
+      </div>
+
+      {tab === 'repay' && <CurvanceRepayFlow pool={pool} address={address} />}
+
+      {tab === 'borrow' && <>
+      {/* Collateral status + credit limit */}
       <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl px-4 py-2.5 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <span className="text-emerald-400 text-sm">✓</span>
@@ -916,18 +2662,58 @@ function CurvanceBorrowFlow({ pool, address }: { pool: BorrowingPool; address?: 
           </span>
         )}
       </div>
-      <AmountInput label="Amount to borrow" token={loanSym} value={borrowAmt} onChange={setBorrowAmt} />
-      <div className="flex justify-between text-xs px-0.5">
-        <span className="text-slate-500">Borrow APR</span>
-        <span className="text-rose-400 font-semibold">{pool.apy.toFixed(2)}%</span>
+
+      {/* Amount input with MAX = max borrowable */}
+      <AmountInput label="Amount to borrow" token={loanSym} value={borrowAmt} onChange={setBorrowAmt} max={maxBorrowStr} />
+
+      {/* Pool stats row */}
+      <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 space-y-2">
+        <div className="flex justify-between text-xs">
+          <span className="text-slate-500">Borrow APR</span>
+          <span className="text-rose-400 font-semibold">{pool.apy.toFixed(2)}%</span>
+        </div>
+        {ltv && (
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500">Max LTV</span>
+            <span className="text-white font-semibold">{ltv.mul(100).toFixed(0)}%</span>
+          </div>
+        )}
+        {maxBorrowable !== null && (
+          <div className="flex justify-between text-xs">
+            <span className="text-slate-500">Max borrow</span>
+            <span className="text-white font-semibold">
+              {maxBorrowable.gt(0)
+                ? `${maxBorrowable.toDecimalPlaces(Math.min(loanDec, 4), Decimal.ROUND_DOWN).toString()} ${loanSym}`
+                : <span className="text-slate-500">—</span>}
+            </span>
+          </div>
+        )}
+
+        {/* Health factor preview — only shown when amount typed */}
+        {decimalAmt && (
+          <div className="flex justify-between text-xs pt-1 border-t border-[#1a2535]">
+            <span className="text-slate-500">Health factor after</span>
+            <span className={`font-semibold ${hfColor}`}>
+              {healthPreview === 'loading' ? (
+                <span className="text-slate-500">…</span>
+              ) : hf === null ? (
+                <span className="text-slate-500">—</span>
+              ) : (
+                <>{hf.toFixed(2)} <span className="text-slate-500 font-normal">({hfLabel})</span></>
+              )}
+            </span>
+          </div>
+        )}
       </div>
+
       <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 leading-relaxed">
-        Curvance requires a minimum borrow of ~$10. Check Curvance app for your exact credit limit.
+        Curvance requires a minimum borrow of ~$10.
       </p>
+
       <Btn
         label={
           txState === 'success' ? `✓ Borrowed ${borrowAmt} ${loanSym}`
-          : txState === 'pending'  ? 'Processing…'
+          : txState === 'pending' ? 'Processing…'
           : `Borrow ${loanSym}`
         }
         onClick={handleBorrow}
@@ -944,22 +2730,32 @@ function CurvanceBorrowFlow({ pool, address }: { pool: BorrowingPool; address?: 
           {txError}
         </p>
       )}
+      </>}
     </div>
   )
 }
 
 // ── Curvance repay flow ────────────────────────────────────────────────────────
-// Reads loanCToken.debtBalance(wallet) → exact amount to repay (no maxUint, no 0).
-// Step 1: approve loanAsset to loanCToken with 0.2% buffer (covers interest accrual).
-// Step 2: loanCToken.repay(debtRaw) — exact amount verified from real on-chain tx.
+// Step 1: approve loanAsset to loanCToken with 0.2% buffer (raw wagmi — no oracle needed).
+// Step 2: SDK loanToken.repay(debtDecimal) — SDK wraps call with Redstone oracle price
+//         updates via multicall. This is required by Curvance MarketManager.
 export function CurvanceRepayFlow({ pool, address }: { pool: BorrowingPool; address?: string }) {
   const market = CURVANCE_BORROW_MARKETS[pool.id]
+  const [repayState, setRepayState] = useState<'idle' | 'repaying' | 'success' | 'error'>('idle')
+  const [repayHash, setRepayHash]   = useState<string>()
+  const [repayError, setRepayError] = useState<string>()
 
-  const loanCToken = market?.loanCToken ?? ('0x0000000000000000000000000000000000000001' as `0x${string}`)
-  const loanDec    = market?.loanDec    ?? 18
-  const loanSym    = market?.loanSym    ?? '?'
+  // SDK hook — must be called unconditionally (hooks rules)
+  const { loanToken, loading: sdkLoading, error: sdkError } = useCurvanceBorrow(
+    market?.colCToken  ?? '0x0000000000000000000000000000000000000001',
+    market?.loanCToken ?? '0x0000000000000000000000000000000000000002',
+  )
 
-  // Get the ERC20 address of the loan token (ERC4626 standard on loanCToken)
+  const loanCToken = (market?.loanCToken ?? '0x0000000000000000000000000000000000000001') as `0x${string}`
+  const loanDec    = market?.loanDec ?? 18
+  const loanSym    = market?.loanSym ?? '?'
+
+  // Get the ERC20 address of the loan token
   const { data: loanAsset } = useReadContract({
     address: loanCToken,
     abi: CURVANCE_BORROW_ABI,
@@ -988,29 +2784,44 @@ export function CurvanceRepayFlow({ pool, address }: { pool: BorrowingPool; addr
     query: { enabled: !!address && !!loanAsset },
   })
 
+  // Step 1: ERC20 approve (raw wagmi — ERC20 approve does not need Redstone oracle)
   const approveWrite = useWriteContract()
   const approveTx    = useWaitForTransactionReceipt({ hash: approveWrite.data })
-  const repayWrite   = useWriteContract()
-  const repayTx      = useWaitForTransactionReceipt({ hash: repayWrite.data })
 
   if (!market) return <p className="text-xs text-slate-500 text-center py-4">Market config not found for {pool.id}</p>
 
-  const isApproved = debtRaw != null && debtRaw > 0n && (allowance ?? 0n) >= approveAmt
-  const innerStep  = isApproved ? 2 : 1
+  const isApproved    = debtRaw != null && debtRaw > 0n && (allowance ?? 0n) >= approveAmt
+  const innerStep     = isApproved ? 2 : 1
+  const approving     = approveWrite.isPending || approveTx.isLoading
+  const isPending     = approving || repayState === 'repaying'
+  const isSuccess     = repayState === 'success'
+  const txHashDisplay = repayHash ?? approveWrite.data
 
-  const isSigning  = approveWrite.isPending || repayWrite.isPending
-  const isWaiting  = approveTx.isLoading    || repayTx.isLoading
-  const isPending  = isSigning || isWaiting
-  const isSuccess  = repayTx.isSuccess
-  const txHash     = repayWrite.data ?? approveWrite.data
-  const txError    = approveWrite.error ?? approveTx.error ?? repayWrite.error ?? repayTx.error
+  async function handleAction() {
+    if (!address || debtRaw == null || debtRaw === 0n || isPending) return
 
-  function handleAction() {
-    if (!address || !loanAsset || debtRaw == null || debtRaw === 0n || isPending) return
     if (innerStep === 1) {
+      // Step 1: ERC20 approve — raw wagmi, tracked via approveTx
+      if (!loanAsset) return
       approveWrite.writeContract({ address: loanAsset, abi: ERC20_ABI, functionName: 'approve', args: [loanCToken, approveAmt] })
     } else {
-      repayWrite.writeContract({ address: loanCToken, abi: CURVANCE_BORROW_ABI, functionName: 'repay', args: [debtRaw] })
+      // Step 2: Repay via Curvance SDK — SDK includes Redstone oracle price updates in the tx
+      if (!loanToken) return
+      setRepayState('repaying')
+      setRepayHash(undefined)
+      setRepayError(undefined)
+      try {
+        // Pass Decimal(0) → SDK fetches buffered debt for approval check, sends repay(0)
+        // on-chain. Curvance treats repay(0) as "repay full outstanding debt", preventing
+        // the LiquidityManager__InsufficientLoanSize error from interest accrual drift.
+        const tx = await loanToken.repay(new Decimal(0))
+        setRepayHash(tx.hash)
+        await tx.wait()
+        setRepayState('success')
+      } catch (e: any) {
+        setRepayError(parseCurvanceError(e))
+        setRepayState('error')
+      }
     }
   }
 
@@ -1018,11 +2829,17 @@ export function CurvanceRepayFlow({ pool, address }: { pool: BorrowingPool; addr
     ? Number(formatUnits(debtRaw, loanDec)).toLocaleString(undefined, { maximumFractionDigits: 6 })
     : null
 
-  const btnLabel = isSuccess  ? `✓ Repaid ${loanSym}`
-    : isSigning               ? 'Confirm in wallet…'
-    : isWaiting               ? 'Transaction pending…'
-    : innerStep === 1         ? `Approve ${loanSym}`
-                              : `Repay ${loanSym}`
+  const btnLabel = isSuccess              ? `✓ Repaid ${loanSym}`
+    : repayState === 'repaying'           ? 'Processing repay…'
+    : approveWrite.isPending              ? 'Confirm in wallet…'
+    : approveTx.isLoading                 ? 'Approving…'
+    : innerStep === 1                     ? `Approve ${loanSym}`
+    : (innerStep === 2 && sdkLoading)     ? 'Loading market data…'
+                                          : `Repay ${loanSym}`
+
+  const displayError = repayError
+    ?? (approveWrite.error ? (approveWrite.error as Error).message?.split('\n')[0]?.slice(0, 160) : undefined)
+    ?? (approveTx.error    ? (approveTx.error    as Error).message?.split('\n')[0]?.slice(0, 160) : undefined)
 
   return (
     <div className="space-y-4">
@@ -1041,6 +2858,12 @@ export function CurvanceRepayFlow({ pool, address }: { pool: BorrowingPool; addr
         <p className="text-center text-xs text-slate-600">Approval confirmed · ready to repay</p>
       )}
 
+      {innerStep === 2 && sdkError && (
+        <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
+          SDK error: {sdkError}
+        </p>
+      )}
+
       <p className="text-xs text-amber-400 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 leading-relaxed">
         Approval includes a 0.2% buffer to cover accrued interest before tx confirms.
       </p>
@@ -1048,22 +2871,23 @@ export function CurvanceRepayFlow({ pool, address }: { pool: BorrowingPool; addr
       <Btn
         label={btnLabel}
         onClick={handleAction}
-        disabled={!address || !loanAsset || debtRaw == null || debtRaw === 0n || isPending || isSuccess}
+        disabled={!address || !loanAsset || debtRaw == null || debtRaw === 0n || isPending || isSuccess
+          || (innerStep === 2 && (sdkLoading || !loanToken))}
       />
 
       {isSuccess && (
         <p className="text-xs text-emerald-400 text-center">Debt repaid in full.</p>
       )}
 
-      {txHash && (
-        <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
+      {txHashDisplay && (
+        <a href={`https://monadexplorer.com/tx/${txHashDisplay}`} target="_blank" rel="noopener noreferrer"
           className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
-          {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
+          {txHashDisplay.slice(0, 20)}…{txHashDisplay.slice(-8)} ↗
         </a>
       )}
-      {txError && (
+      {displayError && (
         <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
-          {(txError as Error).message?.split('\n')[0]?.slice(0, 120)}
+          {displayError}
         </p>
       )}
     </div>
@@ -1072,9 +2896,11 @@ export function CurvanceRepayFlow({ pool, address }: { pool: BorrowingPool; addr
 
 // ── Kuru Vault LP flow (MON + USDC/AUSD → KURU-VAULT shares) ─────────────────
 // deposit(baseAmount, quoteAmount) payable — native MON via msg.value, quote via transferFrom
+// withdraw(shares, receiver, owner) — burns shares, returns proportional MON + quote. No approve.
 // Inputs are ratio-linked: changing one auto-fills the other based on vault's current composition.
 // Steps: 1. Approve quote (USDC/AUSD), 2. Deposit (send MON + quote together)
 export function KuruVaultFlow({ pool, address }: { pool: LPPool; address?: string }) {
+  const [tab, setTab] = useState<'deposit' | 'withdraw'>('deposit')
   const [monAmt, setMonAmt] = useState('')
   const [quoteAmt, setQuoteAmt] = useState('')
   const [lastEdited, setLastEdited] = useState<'mon' | 'quote'>('mon')
@@ -1088,36 +2914,37 @@ export function KuruVaultFlow({ pool, address }: { pool: LPPool; address?: strin
   const parsedMon   = monAmt   && Number(monAmt)   > 0 ? parseEther(monAmt)             : 0n
   const parsedQuote = quoteAmt && Number(quoteAmt) > 0 ? parseUnits(quoteAmt, quoteDec) : 0n
 
-  // Vault deposit ratio — read from MarginAccount (totalAssets reverts on managed vault)
-  // Native MON = address(0), WMON = TOKENS.WMON; sum both to get total base
-  const NATIVE_ADDR = '0x0000000000000000000000000000000000000000' as `0x${string}`
-  const { data: vaultMonBal   } = useReadContract({ address: KURU_MARGIN_ACCOUNT.address, abi: KURU_MARGIN_ACCOUNT.abi, functionName: 'getBalance', args: [vaultAddr, NATIVE_ADDR], query: { enabled: !!info } })
-  const { data: vaultWmonBal  } = useReadContract({ address: KURU_MARGIN_ACCOUNT.address, abi: KURU_MARGIN_ACCOUNT.abi, functionName: 'getBalance', args: [vaultAddr, TOKENS.WMON],   query: { enabled: !!info } })
-  const { data: vaultQuoteBal } = useReadContract({ address: KURU_MARGIN_ACCOUNT.address, abi: KURU_MARGIN_ACCOUNT.abi, functionName: 'getBalance', args: [vaultAddr, quoteToken],    query: { enabled: !!info } })
+  // Deposit ratio — use Kuru market lastPrice (MON price in USDC).
+  // Kuru SDK uses calculateAmount1ForAmount2 which is price-based, NOT vault-balance-based.
+  // The vault may be heavily skewed (e.g. 1.4M MON : 81K USDC) due to filled orders,
+  // so reading MarginAccount balances gives a wildly wrong ratio. Market price is correct.
+  const [monPrice, setMonPrice] = useState<number | null>(null)
+  useEffect(() => {
+    fetch('https://api.kuru.io/api/v1/markets?limit=100', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(json => {
+        const markets = (json?.data?.data ?? []) as { baseasset: string; quoteasset: string; lastPrice: number | null; volume24h: number | null }[]
+        const MON_ZERO = '0x0000000000000000000000000000000000000000'
+        const USDC_ADDR = '0x754704bc059f8c67012fed69bc8a327a5aafb603'
+        const best = markets
+          .filter(m => m.baseasset === MON_ZERO && m.quoteasset.toLowerCase() === USDC_ADDR && (m.volume24h ?? 0) > 10)
+          .sort((a, b) => (b.volume24h ?? 0) - (a.volume24h ?? 0))
+        const price = best[0]?.lastPrice ?? null
+        if (price && price > 0) setMonPrice(price)
+      })
+      .catch(() => {})
+  }, [])
 
-  // vaultBase (bigint, wei) and vaultQuote (bigint, quote units)
-  const vaultBase  = (vaultMonBal  ?? 0n) + (vaultWmonBal ?? 0n)
-  const vaultQuote = vaultQuoteBal ?? 0n
+  const ratioReady = monPrice !== null && monPrice > 0
 
-  // bigint ceiling: computeQuote(monWei) = ceil(monWei * vaultQuote / vaultBase)
-  const computeQuote = (monWei: bigint): bigint =>
-    vaultBase > 0n ? (monWei * vaultQuote + vaultBase - 1n) / vaultBase : 0n
-  // bigint ceiling: computeBase(quoteUnits) = ceil(quoteUnits * vaultBase / vaultQuote)
-  const computeBase = (quoteUnits: bigint): bigint =>
-    vaultQuote > 0n ? (quoteUnits * vaultBase + vaultQuote - 1n) / vaultQuote : 0n
-
-  const ratioReady = vaultBase > 0n && vaultQuote > 0n
-
-  // Linked inputs — changing one auto-fills the other; track which was last edited
+  // Linked inputs — changing one auto-fills the other using market price ratio
   function handleMonChange(v: string) {
     setLastEdited('mon')
     setMonAmt(v)
     if (ratioReady && v && Number(v) > 0) {
-      const monWei = parseEther(v)
-      const q = computeQuote(monWei)
-      // Format to full quoteDec precision so parseUnits can reconstruct exact bigint
-      const qFloat = Number(q) / 10 ** quoteDec
-      setQuoteAmt(qFloat.toFixed(quoteDec))
+      // quoteAmt = monAmt * lastPrice  (MON → USDC)
+      const q = Number(v) * monPrice!
+      setQuoteAmt(q.toFixed(quoteDec))
     } else if (!v) {
       setQuoteAmt('')
     }
@@ -1126,14 +2953,21 @@ export function KuruVaultFlow({ pool, address }: { pool: LPPool; address?: strin
     setLastEdited('quote')
     setQuoteAmt(v)
     if (ratioReady && v && Number(v) > 0) {
-      const quoteUnits = parseUnits(v, quoteDec)
-      const b = computeBase(quoteUnits)
-      const bFloat = Number(b) / 1e18
-      setMonAmt(bFloat.toFixed(18))
+      // monAmt = quoteAmt / lastPrice  (USDC → MON)
+      const b = Number(v) / monPrice!
+      setMonAmt(b.toFixed(6))
     } else if (!v) {
       setMonAmt('')
     }
   }
+
+  // MarginAccount balances — idle vault funds (note: active limit orders not included here)
+  const NATIVE_ADDR = '0x0000000000000000000000000000000000000000' as `0x${string}`
+  const { data: vaultMonBal   } = useReadContract({ address: KURU_MARGIN_ACCOUNT.address, abi: KURU_MARGIN_ACCOUNT.abi, functionName: 'getBalance', args: [vaultAddr, NATIVE_ADDR], query: { enabled: !!info } })
+  const { data: vaultWmonBal  } = useReadContract({ address: KURU_MARGIN_ACCOUNT.address, abi: KURU_MARGIN_ACCOUNT.abi, functionName: 'getBalance', args: [vaultAddr, TOKENS.WMON],   query: { enabled: !!info } })
+  const { data: vaultQuoteBal } = useReadContract({ address: KURU_MARGIN_ACCOUNT.address, abi: KURU_MARGIN_ACCOUNT.abi, functionName: 'getBalance', args: [vaultAddr, quoteToken],    query: { enabled: !!info } })
+  const vaultBase  = (vaultMonBal  ?? 0n) + (vaultWmonBal ?? 0n)
+  const vaultQuote = vaultQuoteBal ?? 0n
 
   // Native MON balance
   const { data: nativeBal } = useBalance({ address: address as `0x${string}` | undefined })
@@ -1169,6 +3003,7 @@ export function KuruVaultFlow({ pool, address }: { pool: LPPool; address?: strin
     query: { enabled: !!address },
   })
 
+  // ── Deposit flow ──
   const isApproved  = parsedQuote > 0n && (allowance ?? 0n) >= parsedQuote
   const currentStep = isApproved ? 2 : 1
 
@@ -1177,15 +3012,15 @@ export function KuruVaultFlow({ pool, address }: { pool: LPPool; address?: strin
   const depositWrite = useWriteContract()
   const depositTx    = useWaitForTransactionReceipt({ hash: depositWrite.data })
 
-  const isSigning = approveWrite.isPending || depositWrite.isPending
-  const isWaiting = approveTx.isLoading    || depositTx.isLoading
-  const isPending = isSigning || isWaiting
-  const isSuccess = depositTx.isSuccess
-  const txHash    = depositWrite.data ?? approveWrite.data
-  const error     = approveWrite.error ?? approveTx.error ?? depositWrite.error ?? depositTx.error
+  const depIsSigning = approveWrite.isPending || depositWrite.isPending
+  const depIsWaiting = approveTx.isLoading    || depositTx.isLoading
+  const depIsPending = depIsSigning || depIsWaiting
+  const depIsSuccess = depositTx.isSuccess
+  const depTxHash    = depositWrite.data ?? approveWrite.data
+  const depError     = approveWrite.error ?? approveTx.error ?? depositWrite.error ?? depositTx.error
 
-  function handleAction() {
-    if (!address || isPending || monInsufficient || quoteInsufficient) return
+  function handleDeposit() {
+    if (!address || depIsPending || monInsufficient || quoteInsufficient) return
     if (currentStep === 1) {
       if (parsedQuote === 0n) return
       approveWrite.writeContract({ address: quoteToken, abi: ERC20_ABI, functionName: 'approve', args: [vaultAddr, parsedQuote] })
@@ -1201,96 +3036,189 @@ export function KuruVaultFlow({ pool, address }: { pool: LPPool; address?: strin
 
   const hasInsufficientBalance = insufficientToken !== null
   const canDeposit = parsedMon > 0n && parsedQuote > 0n && !hasInsufficientBalance
-  const btnDisabled = !address || isPending || isSuccess ||
+  const depBtnDisabled = !address || depIsPending || depIsSuccess ||
     (currentStep === 1 ? parsedQuote === 0n || quoteInsufficient : !canDeposit)
 
-  const btnLabel = isSuccess      ? '✓ Deposited'
-    : isSigning                   ? 'Confirm in wallet…'
-    : isWaiting                   ? 'Transaction pending…'
-    : currentStep === 1           ? `Approve ${quoteSym}`
-                                  : `Deposit MON + ${quoteSym}`
+  const depBtnLabel = depIsSuccess    ? '✓ Deposited'
+    : depIsSigning                    ? 'Confirm in wallet…'
+    : depIsWaiting                    ? 'Transaction pending…'
+    : currentStep === 1               ? `Approve ${quoteSym}`
+                                      : `Deposit MON + ${quoteSym}`
 
-  // Summary values — quoteSym ≈ $1, so quoteAmt ≈ USD value
-  // MON value estimated from vault ratio: monAmt * (vaultQuote/vaultBase in human units)
-  const monValueEst  = ratioReady && Number(monAmt) > 0
+  const monValueEst = ratioReady && Number(monAmt) > 0
     ? Number(monAmt) * (Number(vaultQuote) / 10 ** quoteDec) / (Number(vaultBase) / 1e18)
     : 0
   const quoteValue = Number(quoteAmt) > 0 ? Number(quoteAmt) : 0
   const totalValue = monValueEst + quoteValue
 
+  // ── Withdraw flow — burn shares → receive MON + quote proportionally ──
+  const [wdSharesInput, setWdSharesInput] = useState('')
+
+  const { data: userShares } = useReadContract({
+    address: vaultAddr, abi: KURU_VAULT_ABI, functionName: 'balanceOf',
+    args: [address as `0x${string}`],
+    query: { enabled: !!address },
+  })
+  const { data: totalSupply } = useReadContract({
+    address: vaultAddr, abi: KURU_VAULT_ABI, functionName: 'totalSupply',
+    query: { enabled: true },
+  })
+
+  // Estimate vault composition for display (proportional to user's shares)
+  const userSharesFrac = (userShares ?? 0n) > 0n && (totalSupply ?? 0n) > 0n
+    ? Number(userShares) / Number(totalSupply)
+    : 0
+  const estMon   = userSharesFrac * (Number(vaultBase)  / 1e18)
+  const estQuote = userSharesFrac * (Number(vaultQuote) / 10 ** quoteDec)
+
+  // Share balance formatted for MAX input (18 dec)
+  const sharesStr = userShares !== undefined
+    ? (Number(userShares) / 1e18).toFixed(6)
+    : undefined
+  const parsedWdShares = wdSharesInput && Number(wdSharesInput) > 0
+    ? parseEther(wdSharesInput)
+    : 0n
+  const wdSharesMax = userShares ?? 0n
+  const isWdMax = parsedWdShares >= wdSharesMax && wdSharesMax > 0n
+
+  const redeemWrite = useWriteContract()
+  const redeemTx    = useWaitForTransactionReceipt({ hash: redeemWrite.data })
+
+  const wdIsPending = redeemWrite.isPending || redeemTx.isLoading
+  const wdIsSuccess = redeemTx.isSuccess
+  const wdTxHash    = redeemWrite.data
+  const wdError     = redeemWrite.error ?? redeemTx.error
+
+  function handleWithdraw() {
+    if (!address || parsedWdShares === 0n || wdIsPending) return
+    const addr = address as `0x${string}`
+    // If MAX selected, use exact share balance to avoid rounding dust
+    const shares = isWdMax ? wdSharesMax : parsedWdShares
+    redeemWrite.writeContract({
+      address: vaultAddr, abi: KURU_VAULT_ABI, functionName: 'withdraw',
+      args: [shares, addr, addr],
+    })
+  }
+
+  const wdBtnLabel = wdIsSuccess      ? '✓ Withdrawn'
+    : redeemWrite.isPending           ? 'Confirm in wallet…'
+    : redeemTx.isLoading              ? 'Transaction pending…'
+                                      : 'Withdraw'
+
   if (!info) return <p className="text-xs text-slate-500 text-center py-4">Vault config not found for {pool.id}</p>
+
+  const tabCls = (t: 'deposit' | 'withdraw') =>
+    `flex-1 py-1.5 text-xs font-semibold rounded-lg transition-colors ${tab === t ? 'bg-[#1a2535] text-white' : 'text-slate-500 hover:text-slate-300'}`
 
   return (
     <div className="space-y-4">
-      {/* Lock-up notice */}
-      <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-2.5 flex items-center gap-2">
-        <svg className="w-3.5 h-3.5 text-slate-500 shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M12 4a8 8 0 100 16 8 8 0 000-16z" />
-        </svg>
-        <span className="text-xs text-slate-500">Deposit lock-up period is 4 days</span>
+      {/* Tab switcher */}
+      <div className="flex gap-1 bg-[#0a1220] border border-[#1a2535] rounded-xl p-1">
+        <button className={tabCls('deposit')}  onClick={() => { setTab('deposit');  setMonAmt(''); setQuoteAmt('') }}>Deposit</button>
+        <button className={tabCls('withdraw')} onClick={() => { setTab('withdraw'); setWdSharesInput('') }}>Withdraw</button>
       </div>
 
-      <AmountInput label="You pay" token="MON"    value={monAmt}   onChange={handleMonChange}   max={monBalStr} />
-      <AmountInput label="You pay" token={quoteSym} value={quoteAmt} onChange={handleQuoteChange} max={quoteBalStr} />
+      {tab === 'deposit' ? (
+        <>
+          <AmountInput label="You pay" token="MON"      value={monAmt}   onChange={handleMonChange}   max={monBalStr} />
+          <AmountInput label="You pay" token={quoteSym} value={quoteAmt} onChange={handleQuoteChange} max={quoteBalStr} />
 
-      {/* Insufficient balance warning */}
-      {insufficientToken && (
-        <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
-          <svg className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
-          </svg>
-          <div>
-            <p className="text-xs font-semibold text-rose-400">Insufficient balance</p>
-            <p className="text-xs text-rose-400/70 mt-0.5">
-              You do not have enough {insufficientToken} balance to deposit
+          {insufficientToken && (
+            <div className="flex items-start gap-2 bg-rose-500/10 border border-rose-500/20 rounded-xl px-4 py-3">
+              <svg className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <circle cx="12" cy="12" r="10" /><path d="M12 8v4m0 4h.01" />
+              </svg>
+              <div>
+                <p className="text-xs font-semibold text-rose-400">Insufficient balance</p>
+                <p className="text-xs text-rose-400/70 mt-0.5">You do not have enough {insufficientToken} balance to deposit</p>
+              </div>
+            </div>
+          )}
+
+          <div className="flex items-start gap-2 bg-amber-500/10 border border-amber-500/20 rounded-xl px-4 py-3">
+            <svg className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v4m0 4h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z" />
+            </svg>
+            <p className="text-xs text-amber-400">The deposit lock-up period is <span className="font-semibold">4 days</span>.</p>
+          </div>
+
+          <Steps steps={[`Approve ${quoteSym}`, 'Deposit']} current={currentStep} />
+          {approveTx.isSuccess && currentStep === 2 && (
+            <p className="text-center text-xs text-slate-600">Approval confirmed · now deposit</p>
+          )}
+
+          <Btn label={depBtnLabel} onClick={handleDeposit} disabled={depBtnDisabled} />
+
+          {depTxHash && (
+            <a href={`https://monadexplorer.com/tx/${depTxHash}`} target="_blank" rel="noopener noreferrer"
+              className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+              {depTxHash.slice(0, 20)}…{depTxHash.slice(-8)} ↗
+            </a>
+          )}
+          {depError && (
+            <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+              {(depError as Error).message?.split('\n')[0]?.slice(0, 120)}
             </p>
-          </div>
-        </div>
-      )}
+          )}
 
-      <Steps steps={[`Approve ${quoteSym}`, 'Deposit']} current={currentStep} />
+          {(Number(monAmt) > 0 || Number(quoteAmt) > 0) && (
+            <div className="border-t border-[#1a2535] pt-4 space-y-2">
+              <p className="text-xs font-semibold text-slate-400">Summary</p>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">MON to be deposited</span>
+                <span className="text-white">{monAmt || '0'} MON</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">{quoteSym} to be deposited</span>
+                <span className="text-white">{quoteAmt || '0'} {quoteSym}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Deposit value</span>
+                <span className="text-white font-semibold">{totalValue > 0 ? `$${totalValue.toFixed(2)}` : '$0'}</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Fee APR</span>
+                <span className="text-emerald-400 font-semibold">{pool.fee_apr.toFixed(2)}%</span>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        <>
+          <AmountInput label="Shares to withdraw" token="KSLP" value={wdSharesInput} onChange={setWdSharesInput} max={sharesStr} />
 
-      {approveTx.isSuccess && currentStep === 2 && (
-        <p className="text-center text-xs text-slate-600">Approval confirmed · now deposit</p>
-      )}
+          {userShares !== undefined && userShares > 0n && (
+            <div className="bg-[#0a1220] border border-[#1a2535] rounded-xl px-4 py-3 space-y-1.5">
+              <p className="text-xs font-semibold text-slate-400">Your position</p>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Estimated MON</span>
+                <span className="text-white">≈ {estMon.toFixed(4)} MON</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-slate-500">Estimated {quoteSym}</span>
+                <span className="text-white">≈ {estQuote.toFixed(2)} {quoteSym}</span>
+              </div>
+            </div>
+          )}
 
-      <Btn label={btnLabel} onClick={handleAction} disabled={btnDisabled} />
+          {userShares === 0n && (
+            <p className="text-xs text-slate-500 text-center">No vault shares found</p>
+          )}
 
-      {txHash && (
-        <a href={`https://monadexplorer.com/tx/${txHash}`} target="_blank" rel="noopener noreferrer"
-          className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
-          {txHash.slice(0, 20)}…{txHash.slice(-8)} ↗
-        </a>
-      )}
-      {error && (
-        <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
-          {(error as Error).message?.split('\n')[0]?.slice(0, 120)}
-        </p>
-      )}
+          <Btn label={wdBtnLabel} onClick={handleWithdraw} disabled={!address || parsedWdShares === 0n || wdIsPending || wdIsSuccess} />
 
-      {/* Summary */}
-      {(Number(monAmt) > 0 || Number(quoteAmt) > 0) && (
-        <div className="border-t border-[#1a2535] pt-4 space-y-2">
-          <p className="text-xs font-semibold text-slate-400">Summary</p>
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-500">MON to be deposited</span>
-            <span className="text-white">{monAmt || '0'} MON</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-500">{quoteSym} to be deposited</span>
-            <span className="text-white">{quoteAmt || '0'} {quoteSym}</span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-500">Deposit value</span>
-            <span className="text-white font-semibold">
-              {totalValue > 0 ? `$${totalValue.toFixed(2)}` : '$0'}
-            </span>
-          </div>
-          <div className="flex justify-between text-xs">
-            <span className="text-slate-500">Fee APR</span>
-            <span className="text-emerald-400 font-semibold">{pool.fee_apr.toFixed(2)}%</span>
-          </div>
-        </div>
+          {wdTxHash && (
+            <a href={`https://monadexplorer.com/tx/${wdTxHash}`} target="_blank" rel="noopener noreferrer"
+              className="block text-center text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors truncate">
+              {wdTxHash.slice(0, 20)}…{wdTxHash.slice(-8)} ↗
+            </a>
+          )}
+          {wdError && (
+            <p className="text-xs text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2 break-words">
+              {(wdError as Error).message?.split('\n')[0]?.slice(0, 120)}
+            </p>
+          )}
+        </>
       )}
     </div>
   )

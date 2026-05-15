@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, Fragment, useRef, useEffect } from 'react'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 import type { Pool, LPPool, LendingPool, BorrowingPool, StakingPool, LiquidStakingPool } from '@/types'
 import { ILWarning } from './ILWarning'
 import { CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS } from '@/lib/contracts'
@@ -19,6 +19,7 @@ const PROTOCOL_COLORS: Record<string, string> = {
   Kintsu:      'bg-teal-500',
   Magma:       'bg-orange-500',
 }
+void PROTOCOL_COLORS // used elsewhere
 
 const PROTOCOL_LOGOS: Record<string, string> = {
   Apriori:     '/logos/protocols/apriori.jpg',
@@ -69,6 +70,7 @@ const TOKEN_LOGOS: Record<string, string> = {
   wsrUSD:   '/logos/tokens/wsrusd.svg',
   YZM:      '/logos/tokens/yzm.svg',
   eBTC:     '/logos/tokens/ebtc.svg',
+  savUSD:   '/logos/tokens/savusd.svg',
 }
 
 // Receipt token for each LST protocol (shown instead of deposited MON)
@@ -101,7 +103,6 @@ function TokenPairAvatar(props:
   if (props.mode === 'pair') {
     return (
       <div className="relative shrink-0" style={{ width: 44, height: 32 }}>
-        {/* Explicit w-8 h-8 wrapper + overflow-hidden prevents inline-img gap distortion */}
         <div className="absolute left-0 top-0 w-8 h-8 rounded-full overflow-hidden">
           <TokenLogo symbol={props.token0} className="w-full h-full" />
         </div>
@@ -132,26 +133,6 @@ function RiskProfile({ score }: { score: number }) {
   )
 }
 
-// ─── Type badge ─────────────────────────────────────────────────────────────
-const TYPE_STYLES: Record<string, string> = {
-  lending:       'bg-[#CC3BFF]/10   text-[#CC3BFF]   border-[#CC3BFF]/20',
-  borrowing:     'bg-rose-500/10    text-rose-400    border-rose-500/20',
-  lp:            'bg-fuchsia-500/10 text-fuchsia-400 border-fuchsia-500/20',
-  staking:       'bg-amber-500/10   text-amber-400   border-amber-500/20',
-  liquid_staking:'bg-blue-500/10    text-blue-400    border-blue-500/20',
-}
-const TYPE_LABELS: Record<string, string> = {
-  lending: 'LEND', borrowing: 'BORROW', lp: 'LP', staking: 'STAKE', liquid_staking: 'LST',
-}
-
-function TypeBadge({ type }: { type: string }) {
-  return (
-    <span className={`text-[10px] font-bold px-1.5 py-0.5 border rounded ${TYPE_STYLES[type] ?? TYPE_STYLES.lending}`}>
-      {TYPE_LABELS[type] ?? type.toUpperCase()}
-    </span>
-  )
-}
-
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function getApr(pool: Pool): number {
   if (pool.type === 'lp') return (pool as LPPool).total_apr
@@ -170,15 +151,19 @@ function fmtTvl(v: number): string {
 }
 
 const MORPHO_LABELS: Record<string, string> = {
-  'morpho-c402b0ca': 'Hyperithm · Apex',
-  'morpho-ba8424eb': 'Steakhouse · Prime',
-  'morpho-a8665084': 'Hyperithm · Apex',
-  'morpho-961a59fe': 'Steakhouse · High Yield',
-  'morpho-8699bfe5': 'Steakhouse · High Yield',
-  'morpho-802c91d8': 'Steakhouse · High Yield',
-  'morpho-32841a85': 'Grove · High Yield',
-  'morpho-21649703': 'August',
-  'morpho-0f6f5a82': 'Steakhouse · High Yield',
+  'morpho-beef04b0': 'Steakhouse',
+  'morpho-78999cc9': 'Hyperithm',
+  'morpho-32841a85': 'Grove × Steakhouse',
+  'morpho-e09a9378': 'Hyperithm',
+  'morpho-80017bf0': 'August',
+  'morpho-beeff300': 'Steakhouse',
+  'morpho-beeff421': 'Steakhouse',
+  'morpho-beeffb65': 'Steakhouse',
+  'morpho-beeff443': 'Steakhouse',
+  'morpho-beeffea7': 'Steakhouse',
+  'morpho-0ed3615f': 'Unified Labs',
+  'morpho-ecef08a3': 'UltraYield',
+  'morpho-beeff96d': 'Steakhouse',
 }
 
 // ─── Dropdown filter ────────────────────────────────────────────────────────
@@ -261,53 +246,26 @@ function DropdownFilter<T extends string>({
   )
 }
 
-// ─── Main ────────────────────────────────────────────────────────────────────
+// ─── Protocol logo cell ─────────────────────────────────────────────────────
+function ProtocolLogo({ protocol }: { protocol: string }) {
+  return PROTOCOL_LOGOS[protocol] ? (
+    // eslint-disable-next-line @next/next/no-img-element
+    <img src={PROTOCOL_LOGOS[protocol]} alt={protocol} title={protocol} className="w-7 h-7 rounded-full object-cover" />
+  ) : (
+    <span className="text-sm text-slate-400">{protocol}</span>
+  )
+}
+
+// ─── Sort button ─────────────────────────────────────────────────────────────
 type SortKey = 'apr' | 'tvl' | 'risk_score'
-type TypeFilter = 'all' | 'lp' | 'lending' | 'borrowing' | 'staking' | 'liquid_staking'
 
-interface Props { pools: Pool[] }
-
-export function PoolTable({ pools }: Props) {
-  const router = useRouter()
-  const [sortKey, setSortKey]         = useState<SortKey>('apr')
-  const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('desc')
-  const [typeFilter, setTypeFilter]   = useState<TypeFilter>('all')
-  const [protocolFilter, setProtocol] = useState('all')
-  const [search, setSearch]           = useState('')
-  const [showBytes, setShowBytes]     = useState(true)
-  const [expandedIL, setExpandedIL]   = useState<string | null>(null)
-
-  const protocols = ['all', ...Array.from(new Set(pools.map(p => p.protocol))).sort()]
-
-  function toggleSort(k: SortKey) {
-    if (sortKey === k) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
-    else { setSortKey(k); setSortDir('desc') }
-  }
-
-  const filtered = pools.filter(p => {
-    if (typeFilter !== 'all' && p.type !== typeFilter) return false
-    if (protocolFilter !== 'all' && p.protocol !== protocolFilter) return false
-    if (search.trim()) {
-      const q = search.toLowerCase()
-      const name = p.type === 'lp'
-        ? `${(p as LPPool).token0}/${(p as LPPool).token1}`.toLowerCase()
-        : (p as LendingPool).asset.toLowerCase()
-      if (!name.includes(q) && !p.protocol.toLowerCase().includes(q)) return false
-    }
-    return true
-  })
-
-  const sorted = [...filtered].sort((a, b) => {
-    let av = 0, bv = 0
-    if (sortKey === 'apr')        { av = getApr(a);      bv = getApr(b) }
-    else if (sortKey === 'tvl')   { av = a.tvl;          bv = b.tvl }
-    else if (sortKey === 'risk_score') { av = a.risk_score; bv = b.risk_score }
-    return sortDir === 'desc' ? bv - av : av - bv
-  })
-
-  const SortBtn = ({ k, label }: { k: SortKey; label: string }) => (
+function SortBtn({ k, label, sortKey, sortDir, onToggle }: {
+  k: SortKey; label: string; sortKey: SortKey; sortDir: 'asc' | 'desc'
+  onToggle: (k: SortKey) => void
+}) {
+  return (
     <button
-      onClick={() => toggleSort(k)}
+      onClick={() => onToggle(k)}
       className="flex items-center gap-1 text-xs font-medium uppercase tracking-wider text-slate-500 hover:text-slate-300 select-none transition-colors group"
     >
       {label}
@@ -316,30 +274,525 @@ export function PoolTable({ pools }: Props) {
       </span>
     </button>
   )
+}
+
+// ─── LP Table ────────────────────────────────────────────────────────────────
+function LPTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
+  pools: Pool[]; showBytes: boolean
+  sortKey: SortKey; sortDir: 'asc' | 'desc'
+  onToggleSort: (k: SortKey) => void
+}) {
+  const router = useRouter()
+  const [expandedIL, setExpandedIL] = useState<string | null>(null)
+
+  const sorted = [...pools].sort((a, b) => {
+    let av = 0, bv = 0
+    if (sortKey === 'apr')        { av = getApr(a); bv = getApr(b) }
+    else if (sortKey === 'tvl')   { av = a.tvl;     bv = b.tvl     }
+    else                          { av = a.risk_score; bv = b.risk_score }
+    return sortDir === 'desc' ? bv - av : av - bv
+  })
+
+  return (
+    <div className="rounded-2xl border border-[var(--border)] overflow-hidden">
+      <table className="w-full">
+        <thead>
+          <tr className="bg-[var(--card)] border-b border-[var(--border)]">
+            <th className="px-4 py-3 text-left">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Pool</span>
+            </th>
+            <th className="px-4 py-3 text-left">
+              <SortBtn k="apr" label="APY/APR" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            </th>
+            <th className="px-4 py-3 text-left">
+              <SortBtn k="tvl" label="Deposits" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            </th>
+            <th className="px-4 py-3 text-left hidden md:table-cell">
+              <SortBtn k="risk_score" label="Assessment" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            </th>
+            <th className="px-4 py-3 text-left hidden lg:table-cell">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Protocol</span>
+            </th>
+            <th className="px-4 py-3 w-[88px]" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[var(--border)]">
+          {sorted.length === 0 && (
+            <tr>
+              <td colSpan={6} className="px-4 py-12 text-center text-slate-600 text-sm">
+                No pools match your filters.
+              </td>
+            </tr>
+          )}
+          {sorted.map(pool => {
+            const lp = pool as LPPool
+            const apr = getApr(pool)
+            const isFull = pool.status === 'full'
+            const subtitle = pool.protocol === 'Uniswap'
+              ? pool.id.startsWith('uniswap-v4') ? 'V4' : pool.id.startsWith('uniswap-v3') ? 'V3' : 'V2'
+              : null
+
+            return (
+              <Fragment key={pool.id}>
+                <tr
+                  className={`transition-colors cursor-pointer group ${isFull ? 'opacity-50' : 'hover:bg-[var(--card-hover)]'}`}
+                  onClick={() => setExpandedIL(expandedIL === pool.id ? null : pool.id)}
+                >
+                  <td className="px-4 py-3.5">
+                    <div className="flex items-center gap-3">
+                      <TokenPairAvatar mode="pair" token0={lp.token0} token1={lp.token1} />
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-sm font-semibold text-white truncate">{lp.token0}/{lp.token1}</p>
+                          {isFull && (
+                            <span className="text-[10px] font-bold px-1.5 py-0.5 border rounded bg-slate-500/10 text-slate-400 border-slate-500/20">FULL</span>
+                          )}
+                        </div>
+                        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className={`text-sm font-semibold ${apr > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                      {fmtApr(apr)}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3.5">
+                    <span className="text-sm font-medium text-white">{fmtTvl(pool.tvl)}</span>
+                  </td>
+                  <td className="px-4 py-3.5 hidden md:table-cell">
+                    <RiskProfile score={pool.risk_score} />
+                  </td>
+                  <td className="px-4 py-3.5 hidden lg:table-cell">
+                    <ProtocolLogo protocol={pool.protocol} />
+                  </td>
+                  <td className="px-4 py-3.5 text-right">
+                    <button
+                      onClick={e => { e.stopPropagation(); router.push('/pools/' + pool.id) }}
+                      className="px-3.5 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-slate-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--border)] hover:border-slate-500 transition-all"
+                    >
+                      Deposit
+                    </button>
+                  </td>
+                </tr>
+                {expandedIL === pool.id && (
+                  <tr key={`${pool.id}-il`} className="bg-[var(--card)]">
+                    <td colSpan={6} className="px-4 py-3 space-y-2">
+                      {pool.protocol === 'PancakeSwap' && (
+                        <div className="text-xs text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
+                          ⚡ <strong>Full-range APR (estimated):</strong> Calculated using total pool TVL and 24h volume.
+                          Concentrated positions near the current price may earn significantly more, but earn $0 if price moves out of range.
+                        </div>
+                      )}
+                      {lp.il_risk !== 'low' && <ILWarning ilRisk={lp.il_risk} />}
+                    </td>
+                  </tr>
+                )}
+              </Fragment>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── LST Table ───────────────────────────────────────────────────────────────
+function LSTTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
+  pools: Pool[]; showBytes: boolean
+  sortKey: SortKey; sortDir: 'asc' | 'desc'
+  onToggleSort: (k: SortKey) => void
+}) {
+  const router = useRouter()
+
+  const sorted = [...pools].sort((a, b) => {
+    let av = 0, bv = 0
+    if (sortKey === 'apr')        { av = getApr(a); bv = getApr(b) }
+    else if (sortKey === 'tvl')   { av = a.tvl;     bv = b.tvl     }
+    else                          { av = a.risk_score; bv = b.risk_score }
+    return sortDir === 'desc' ? bv - av : av - bv
+  })
+
+  return (
+    <div className="rounded-2xl border border-[var(--border)] overflow-hidden">
+      <table className="w-full">
+        <thead>
+          <tr className="bg-[var(--card)] border-b border-[var(--border)]">
+            <th className="px-4 py-3 text-left">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Asset</span>
+            </th>
+            <th className="px-4 py-3 text-left">
+              <SortBtn k="apr" label="APY" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            </th>
+            <th className="px-4 py-3 text-left">
+              <SortBtn k="tvl" label="TVL" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            </th>
+            <th className="px-4 py-3 text-left hidden md:table-cell">
+              <SortBtn k="risk_score" label="Assessment" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            </th>
+            <th className="px-4 py-3 text-left hidden lg:table-cell">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Protocol</span>
+            </th>
+            <th className="px-4 py-3 w-[88px]" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[var(--border)]">
+          {sorted.length === 0 && (
+            <tr>
+              <td colSpan={6} className="px-4 py-12 text-center text-slate-600 text-sm">No pools match your filters.</td>
+            </tr>
+          )}
+          {sorted.map(pool => {
+            const other = pool as LiquidStakingPool
+            const receipt = LST_RECEIPT[pool.protocol] ?? other.asset
+            const apr = getApr(pool)
+
+            return (
+              <tr
+                key={pool.id}
+                className="transition-colors cursor-pointer group hover:bg-[var(--card-hover)]"
+                onClick={() => router.push('/pools/' + pool.id)}
+              >
+                <td className="px-4 py-3.5">
+                  <div className="flex items-center gap-3">
+                    <TokenPairAvatar mode="single" token={receipt} />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white">MON → {receipt}</p>
+                      <p className="text-xs text-slate-500 mt-0.5">{pool.protocol}</p>
+                    </div>
+                  </div>
+                </td>
+                <td className="px-4 py-3.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-sm font-semibold ${apr > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                      {fmtApr(apr)}
+                    </span>
+                    {showBytes && pool.protocol === 'Magma' && (
+                      <span className="text-[10px] font-semibold text-orange-400 bg-orange-400/10 border border-orange-400/20 rounded px-1.5 py-0.5">
+                        + Points
+                      </span>
+                    )}
+                  </div>
+                </td>
+                <td className="px-4 py-3.5">
+                  <span className="text-sm font-medium text-white">{fmtTvl(pool.tvl)}</span>
+                </td>
+                <td className="px-4 py-3.5 hidden md:table-cell">
+                  <RiskProfile score={pool.risk_score} />
+                </td>
+                <td className="px-4 py-3.5 hidden lg:table-cell">
+                  <ProtocolLogo protocol={pool.protocol} />
+                </td>
+                <td className="px-4 py-3.5 text-right">
+                  <button
+                    onClick={e => { e.stopPropagation(); router.push('/pools/' + pool.id) }}
+                    className="px-3.5 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-slate-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--border)] hover:border-slate-500 transition-all"
+                  >
+                    Stake
+                  </button>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── Lending & Borrowing Table ───────────────────────────────────────────────
+type LBRow = {
+  lendPool: Pool
+  borrowPool?: Pool
+  lendSym: string
+  borrowSym?: string
+  lendLabel?: string   // vault curator for Morpho
+}
+
+function LendingTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
+  pools: Pool[]; showBytes: boolean
+  sortKey: SortKey; sortDir: 'asc' | 'desc'
+  onToggleSort: (k: SortKey) => void
+}) {
+  const router = useRouter()
+
+  // Build combined rows: lending + optional matching borrow for Curvance
+  const lendingPools = pools.filter(p => p.type === 'lending')
+  const borrowingPools = pools.filter(p => p.type === 'borrowing')
+
+  const rows: LBRow[] = lendingPools.map(lend => {
+    if (lend.protocol === 'Curvance') {
+      const curvMarket = CURVANCE_MARKETS[lend.id]
+      // Match borrow pool by colCToken (unique per deposit direction)
+      const borrowEntry = Object.entries(CURVANCE_BORROW_MARKETS)
+        .find(([_, b]) => b.colCToken.toLowerCase() === curvMarket?.colCToken.toLowerCase())
+      const borrowPool = borrowEntry
+        ? borrowingPools.find(p => p.id === borrowEntry[0])
+        : undefined
+      return {
+        lendPool: lend,
+        borrowPool,
+        lendSym: curvMarket?.colSym ?? (lend as LendingPool).asset,
+        borrowSym: borrowEntry?.[1].loanSym,
+      }
+    }
+    // Neverland: match borrow pool by ID convention neverland-lending-{sym} → neverland-borrowing-{sym}
+    if (lend.protocol === 'Neverland') {
+      const sym = lend.id.replace('neverland-lending-', '')
+      const borrowPool = borrowingPools.find(p => p.id === `neverland-borrowing-${sym}`)
+      return {
+        lendPool: lend,
+        borrowPool,
+        lendSym: (lend as LendingPool).asset,
+        borrowSym: borrowPool ? (borrowPool as BorrowingPool).asset : undefined,
+      }
+    }
+    // Morpho: lending only
+    return {
+      lendPool: lend,
+      lendSym: (lend as LendingPool).asset,
+      lendLabel: MORPHO_LABELS[lend.id],
+    }
+  })
+
+  // Sort rows by lend APY, TVL, or risk
+  const sorted = [...rows].sort((a, b) => {
+    let av = 0, bv = 0
+    if (sortKey === 'apr') {
+      av = (a.lendPool as LendingPool).apy ?? 0
+      bv = (b.lendPool as LendingPool).apy ?? 0
+    } else if (sortKey === 'tvl') {
+      av = a.lendPool.tvl; bv = b.lendPool.tvl
+    } else {
+      av = a.lendPool.risk_score; bv = b.lendPool.risk_score
+    }
+    return sortDir === 'desc' ? bv - av : av - bv
+  })
+
+  return (
+    <div className="rounded-2xl border border-[var(--border)] overflow-hidden">
+      <table className="w-full">
+        <thead>
+          <tr className="bg-[var(--card)] border-b border-[var(--border)]">
+            <th className="px-4 py-3 text-left">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Lend</span>
+            </th>
+            <th className="px-4 py-3 text-left">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Borrow</span>
+            </th>
+            <th className="px-4 py-3 text-left">
+              <SortBtn k="apr" label="APY Lend" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            </th>
+            <th className="px-4 py-3 text-left hidden sm:table-cell">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">APY Borrow</span>
+            </th>
+            <th className="px-4 py-3 text-left">
+              <SortBtn k="tvl" label="Deposit" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            </th>
+            <th className="px-4 py-3 text-left hidden md:table-cell">
+              <SortBtn k="risk_score" label="Assessment" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
+            </th>
+            <th className="px-4 py-3 text-left hidden lg:table-cell">
+              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Protocol</span>
+            </th>
+            <th className="px-4 py-3 w-[120px]" />
+          </tr>
+        </thead>
+        <tbody className="divide-y divide-[var(--border)]">
+          {sorted.length === 0 && (
+            <tr>
+              <td colSpan={8} className="px-4 py-12 text-center text-slate-600 text-sm">
+                No pools match your filters.
+              </td>
+            </tr>
+          )}
+          {sorted.map(({ lendPool, borrowPool, lendSym, borrowSym, lendLabel }) => {
+            const lendApy  = (lendPool as LendingPool).apy ?? 0
+            const borrowApy = borrowPool ? (borrowPool as BorrowingPool).apy ?? 0 : null
+            const isFull = lendPool.status === 'full' && lendPool.protocol !== 'Curvance'
+
+            return (
+              <tr
+                key={lendPool.id}
+                className={`group transition-colors ${isFull ? 'opacity-50' : 'hover:bg-[var(--card-hover)]'}`}
+              >
+                {/* Lend column */}
+                <td className="px-4 py-3.5">
+                  <div className="flex items-center gap-2.5">
+                    <TokenLogo symbol={lendSym} className="w-8 h-8" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-semibold text-white">{lendSym}</p>
+                      {lendLabel && <p className="text-xs text-slate-500 mt-0.5 truncate">{lendLabel}</p>}
+                    </div>
+                  </div>
+                </td>
+
+                {/* Borrow column */}
+                <td className="px-4 py-3.5">
+                  {borrowSym ? (
+                    <div className="flex items-center gap-2.5">
+                      <TokenLogo symbol={borrowSym} className="w-8 h-8" />
+                      <p className="text-sm font-semibold text-white">{borrowSym}</p>
+                    </div>
+                  ) : (
+                    <span className="text-slate-600 text-sm">—</span>
+                  )}
+                </td>
+
+                {/* APY Lend */}
+                <td className="px-4 py-3.5">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className={`text-sm font-semibold ${lendApy > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
+                      {fmtApr(lendApy)}
+                    </span>
+                    {showBytes && lendPool.protocol === 'Curvance' && (
+                      <span className="text-[10px] font-semibold text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded px-1.5 py-0.5">
+                        + Bytes
+                      </span>
+                    )}
+                  </div>
+                </td>
+
+                {/* APY Borrow */}
+                <td className="px-4 py-3.5 hidden sm:table-cell">
+                  {borrowApy !== null ? (
+                    <span className={`text-sm font-semibold ${borrowApy > 0 ? 'text-rose-400' : 'text-slate-500'}`}>
+                      {fmtApr(borrowApy)}
+                    </span>
+                  ) : (
+                    <span className="text-slate-600 text-sm">—</span>
+                  )}
+                </td>
+
+                {/* Deposit TVL */}
+                <td className="px-4 py-3.5">
+                  <span className="text-sm font-medium text-white">{fmtTvl(lendPool.tvl)}</span>
+                </td>
+
+                {/* Assessment */}
+                <td className="px-4 py-3.5 hidden md:table-cell">
+                  <RiskProfile score={lendPool.risk_score} />
+                </td>
+
+                {/* Protocol */}
+                <td className="px-4 py-3.5 hidden lg:table-cell">
+                  <ProtocolLogo protocol={lendPool.protocol} />
+                </td>
+
+                {/* Action buttons */}
+                <td className="px-4 py-3.5">
+                  <div className="flex items-center gap-1.5 justify-end opacity-0 group-hover:opacity-100 transition-all">
+                    <button
+                      onClick={() => router.push('/pools/' + lendPool.id)}
+                      className="px-3 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-[#BFA2FF] rounded-lg hover:bg-[#CC3BFF]/10 hover:border-[#CC3BFF]/40 transition-all"
+                    >
+                      Lend
+                    </button>
+                    {borrowPool && (
+                      <button
+                        onClick={() => router.push('/pools/' + borrowPool.id)}
+                        className="px-3 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-rose-400 rounded-lg hover:bg-rose-500/10 hover:border-rose-500/30 transition-all"
+                      >
+                        Borrow
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            )
+          })}
+        </tbody>
+      </table>
+    </div>
+  )
+}
+
+// ─── Main ────────────────────────────────────────────────────────────────────
+type TabType = 'lp' | 'lst' | 'lending'
+
+interface Props { pools: Pool[] }
+
+export function PoolTable({ pools }: Props) {
+  const sp = useSearchParams()
+  const initTab = sp.get('tab')
+  const [tab, setTab]                 = useState<TabType>(
+    initTab === 'lending' || initTab === 'lst' ? initTab : 'lp'
+  )
+  const [sortKey, setSortKey]         = useState<SortKey>('apr')
+  const [sortDir, setSortDir]         = useState<'asc' | 'desc'>('desc')
+  const [protocolFilter, setProtocol] = useState(sp.get('protocol') ?? 'all')
+  const [search, setSearch]           = useState('')
+  const [showBytes, setShowBytes]     = useState(true)
+
+  function toggleSort(k: SortKey) {
+    if (sortKey === k) setSortDir(d => d === 'desc' ? 'asc' : 'desc')
+    else { setSortKey(k); setSortDir('desc') }
+  }
+
+  // Reset protocol filter when switching tabs
+  function switchTab(t: TabType) {
+    setTab(t)
+    setProtocol('all')
+    setSearch('')
+  }
+
+  // Filter pools by tab category
+  const tabPools = pools.filter(p => {
+    if (tab === 'lp')      return p.type === 'lp'
+    if (tab === 'lst')     return p.type === 'liquid_staking'
+    if (tab === 'lending') return p.type === 'lending' || p.type === 'borrowing'
+    return false
+  })
+
+  // Protocol options relevant to current tab (lending tab: only show lending protocols, not borrow-only)
+  const tabProtocols = ['all', ...Array.from(new Set(
+    tabPools
+      .filter(p => tab !== 'lending' || p.type === 'lending')
+      .map(p => p.protocol)
+  )).sort()]
+
+  // Apply protocol + search filters
+  const filtered = tabPools.filter(p => {
+    if (protocolFilter !== 'all' && p.protocol !== protocolFilter) return false
+    if (search.trim()) {
+      const q = search.toLowerCase()
+      const asset = p.type === 'lp'
+        ? `${(p as LPPool).token0}/${(p as LPPool).token1}`.toLowerCase()
+        : (p as LendingPool).asset?.toLowerCase() ?? ''
+      if (!asset.includes(q) && !p.protocol.toLowerCase().includes(q)) return false
+    }
+    return true
+  })
+
+  const visibleCount = tab === 'lending'
+    ? filtered.filter(p => p.type === 'lending').length
+    : filtered.length
+
+  const totalCount = tab === 'lending'
+    ? pools.filter(p => p.type === 'lending').length
+    : pools.filter(p =>
+        (tab === 'lp' && p.type === 'lp') ||
+        (tab === 'lst' && p.type === 'liquid_staking')
+      ).length
 
   return (
     <div>
       {/* ── Filter row ─────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         <DropdownFilter
-          value={typeFilter}
+          value={tab}
           label="Category"
           options={[
-            { value: 'all',           label: 'All Pools' },
-            { value: 'lp',            label: 'LP' },
-            { value: 'lending',       label: 'Lending' },
-            { value: 'borrowing',     label: 'Borrowing' },
-            { value: 'staking',       label: 'Staking' },
-            { value: 'liquid_staking',label: 'LST' },
+            { value: 'lp'      as TabType, label: 'LP' },
+            { value: 'lst'     as TabType, label: 'LST' },
+            { value: 'lending' as TabType, label: 'Lending & Borrowing' },
           ]}
-          onChange={setTypeFilter}
-          accentClass="bg-[#CC3BFF]/10 border-[#CC3BFF]/30 text-[#BFA2FF]"
+          onChange={switchTab}
         />
-
         <DropdownFilter
           value={protocolFilter}
           label="Protocol"
-          options={protocols.map(p => ({
+          options={tabProtocols.map(p => ({
             value: p,
             label: p === 'all' ? 'All Protocols' : p,
             icon: PROTOCOL_LOGOS[p],
@@ -348,7 +801,7 @@ export function PoolTable({ pools }: Props) {
           accentClass="bg-indigo-500/10 border-indigo-500/30 text-indigo-300"
         />
 
-        {/* Search — pushed right */}
+        {/* Search */}
         <div className="ml-auto relative">
           <svg className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
             <circle cx="11" cy="11" r="8" /><path d="m21 21-4.35-4.35" />
@@ -365,8 +818,8 @@ export function PoolTable({ pools }: Props) {
       {/* ── Count + Bytes toggle ───────────────────────────────────────── */}
       <div className="flex items-center justify-between mb-3 px-1">
         <p className="text-xs text-slate-500">
-          Showing <span className="text-slate-300 font-medium">{sorted.length}</span> of{' '}
-          <span className="text-slate-300 font-medium">{pools.length}</span> pools
+          Showing <span className="text-slate-300 font-medium">{visibleCount}</span> of{' '}
+          <span className="text-slate-300 font-medium">{totalCount}</span> pools
         </p>
         <label className="flex items-center gap-2 cursor-pointer select-none">
           <span className="text-xs text-slate-500">Show incentive badges</span>
@@ -379,179 +832,28 @@ export function PoolTable({ pools }: Props) {
         </label>
       </div>
 
-      {/* ── Table ──────────────────────────────────────────────────────── */}
-      <div className="rounded-2xl border border-[var(--border)] overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="bg-[var(--card)] border-b border-[var(--border)]">
-              <th className="px-4 py-3 text-left">
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Pool</span>
-              </th>
-              <th className="px-4 py-3 text-left">
-                <SortBtn k="apr" label="APY/APR" />
-              </th>
-              <th className="px-4 py-3 text-left">
-                <SortBtn k="tvl" label="Deposits" />
-              </th>
-              <th className="px-4 py-3 text-left hidden md:table-cell">
-                <SortBtn k="risk_score" label="Assessment" />
-              </th>
-              <th className="px-4 py-3 text-left hidden lg:table-cell">
-                <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Protocol</span>
-              </th>
-              <th className="px-4 py-3 w-[88px]" />
-            </tr>
-          </thead>
-          <tbody className="divide-y divide-[var(--border)]">
-            {sorted.length === 0 && (
-              <tr>
-                <td colSpan={6} className="px-4 py-12 text-center text-slate-600 text-sm">
-                  No pools match your filters.
-                </td>
-              </tr>
-            )}
-            {sorted.map(pool => {
-              const isLP   = pool.type === 'lp'
-              const lpPool = pool as LPPool
-              const other  = pool as LendingPool
-
-              const curvBorrow = pool.protocol === 'Curvance' && pool.type === 'borrowing'
-                ? CURVANCE_BORROW_MARKETS[pool.id]
-                : null
-
-              const name = isLP
-                ? `${lpPool.token0}/${lpPool.token1}`
-                : pool.protocol === 'Curvance' && pool.type === 'lending'
-                  ? (CURVANCE_MARKETS[pool.id]?.colSym ?? other.asset.split('/')[0])
-                  : curvBorrow
-                    ? `${curvBorrow.colSym}/${curvBorrow.loanSym}`
-                    : other.asset
-
-              // Token avatar: pair for LP + Curvance borrow, single for others
-              const avatarProps: Parameters<typeof TokenPairAvatar>[0] = isLP || curvBorrow
-                ? { mode: 'pair',
-                    token0: curvBorrow ? curvBorrow.colSym : lpPool.token0,
-                    token1: curvBorrow ? curvBorrow.loanSym : lpPool.token1 }
-                : { mode: 'single', token:
-                    pool.type === 'liquid_staking' ? (LST_RECEIPT[pool.protocol] ?? other.asset)
-                    : pool.protocol === 'Curvance' && pool.type === 'lending'
-                      ? (CURVANCE_MARKETS[pool.id]?.colSym ?? other.asset)
-                      : other.asset
-                  }
-
-              const subtitle = MORPHO_LABELS[pool.id]
-                ?? (pool.protocol === 'Uniswap'
-                  ? pool.id.startsWith('uniswap-v4') ? 'V4'
-                  : pool.id.startsWith('uniswap-v3') ? 'V3'
-                  : 'V2'
-                  : null)
-
-              const apr = getApr(pool)
-              const isFull = pool.status === 'full' && pool.protocol !== 'Curvance'
-
-              return (
-                <Fragment key={pool.id}>
-                  <tr
-                    className={`transition-colors cursor-pointer group ${isFull ? 'opacity-50' : 'hover:bg-[var(--card-hover)]'}`}
-                    onClick={() => isLP ? setExpandedIL(expandedIL === pool.id ? null : pool.id) : router.push('/pools/' + pool.id)}
-                  >
-                    {/* Pool name */}
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-3">
-                        <TokenPairAvatar {...avatarProps} />
-                        <div className="min-w-0">
-                          <div className="flex items-center gap-2 flex-wrap">
-                            <p className="text-sm font-semibold text-white truncate">{name}</p>
-                            <TypeBadge type={pool.type} />
-                            {isFull && (
-                              <span className="text-[10px] font-bold px-1.5 py-0.5 border rounded bg-slate-500/10 text-slate-400 border-slate-500/20">
-                                FULL
-                              </span>
-                            )}
-                          </div>
-                          {subtitle && (
-                            <p className="text-xs text-slate-500 mt-0.5 truncate">{subtitle}</p>
-                          )}
-                        </div>
-                      </div>
-                    </td>
-
-                    {/* APY */}
-                    <td className="px-4 py-3.5">
-                      <div className="flex items-center gap-1.5 flex-wrap">
-                        <span className={`text-sm font-semibold ${apr > 0 ? 'text-emerald-400' : 'text-slate-500'}`}>
-                          {fmtApr(apr)}
-                        </span>
-                        {showBytes && pool.protocol === 'Curvance' && pool.type !== 'borrowing' && (
-                          <span className="text-[10px] font-semibold text-amber-400 bg-amber-400/10 border border-amber-400/20 rounded px-1.5 py-0.5">
-                            + Bytes
-                          </span>
-                        )}
-                        {showBytes && pool.protocol === 'Magma' && (
-                          <span className="text-[10px] font-semibold text-orange-400 bg-orange-400/10 border border-orange-400/20 rounded px-1.5 py-0.5">
-                            + Points
-                          </span>
-                        )}
-                      </div>
-                    </td>
-
-                    {/* TVL */}
-                    <td className="px-4 py-3.5">
-                      <span className="text-sm font-medium text-white">{fmtTvl(pool.tvl)}</span>
-                    </td>
-
-                    {/* Risk profile */}
-                    <td className="px-4 py-3.5 hidden md:table-cell">
-                      <RiskProfile score={pool.risk_score} />
-                    </td>
-
-                    {/* Protocol */}
-                    <td className="px-4 py-3.5 hidden lg:table-cell">
-                      {PROTOCOL_LOGOS[pool.protocol] ? (
-                        // eslint-disable-next-line @next/next/no-img-element
-                        <img
-                          src={PROTOCOL_LOGOS[pool.protocol]}
-                          alt={pool.protocol}
-                          title={pool.protocol}
-                          className="w-7 h-7 rounded-full object-cover"
-                        />
-                      ) : (
-                        <span className="text-sm text-slate-400">{pool.protocol}</span>
-                      )}
-                    </td>
-
-                    {/* Action button */}
-                    <td className="px-4 py-3.5 text-right">
-                      <button
-                        onClick={e => { e.stopPropagation(); router.push('/pools/' + pool.id) }}
-                        className="px-3.5 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-slate-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--border)] hover:border-slate-500 transition-all"
-                      >
-                        {pool.type === 'borrowing' ? 'Borrow' : 'Deposit'}
-                      </button>
-                    </td>
-                  </tr>
-
-                  {/* Expanded IL warning for LP pools */}
-                  {isLP && expandedIL === pool.id && (
-                    <tr key={`${pool.id}-il`} className="bg-[var(--card)]">
-                      <td colSpan={6} className="px-4 py-3 space-y-2">
-                        {pool.protocol === 'PancakeSwap' && (
-                          <div className="text-xs text-blue-300 bg-blue-500/10 border border-blue-500/20 rounded-lg p-3">
-                            ⚡ <strong>Full-range APR (estimated):</strong> Calculated using total pool TVL and 24h volume.
-                            Concentrated positions near the current price may earn significantly more, but earn $0 if price moves out of range.
-                          </div>
-                        )}
-                        {lpPool.il_risk !== 'low' && <ILWarning ilRisk={lpPool.il_risk} />}
-                      </td>
-                    </tr>
-                  )}
-                </Fragment>
-              )
-            })}
-          </tbody>
-        </table>
-      </div>
-
+      {/* ── Table (tab-specific) ───────────────────────────────────────── */}
+      {tab === 'lp' && (
+        <LPTable
+          pools={filtered}
+          showBytes={showBytes}
+          sortKey={sortKey} sortDir={sortDir} onToggleSort={toggleSort}
+        />
+      )}
+      {tab === 'lst' && (
+        <LSTTable
+          pools={filtered}
+          showBytes={showBytes}
+          sortKey={sortKey} sortDir={sortDir} onToggleSort={toggleSort}
+        />
+      )}
+      {tab === 'lending' && (
+        <LendingTable
+          pools={filtered}
+          showBytes={showBytes}
+          sortKey={sortKey} sortDir={sortDir} onToggleSort={toggleSort}
+        />
+      )}
     </div>
   )
 }

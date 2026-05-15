@@ -1,11 +1,12 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
-import { useAccount, useDisconnect } from 'wagmi'
+import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useAccount, useDisconnect, useReadContracts, useReadContract, useWriteContract, useWaitForTransactionReceipt } from 'wagmi'
 import { useRouter } from 'next/navigation'
 import { ConnectModal } from '@/components/WalletButton'
 import { fetchPortfolio, type Position, type TokenAmount } from '@/lib/portfolio'
 import { saveV4TokenId, loadV4TokenIds } from '@/lib/v4positions'
+import { NEVERLAND_DATA_PROVIDER, NEVERLAND_DUST_REWARDS } from '@/lib/contracts'
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 function fmtUsd(n: number) {
@@ -105,13 +106,119 @@ function AmountsCell({ items }: { items: TokenAmount[] }) {
   )
 }
 
+// ─── Neverland DUST claim row ─────────────────────────────────────────────────
+const DUST_TOKEN      = '0xAD96C3dffCD6374294e2573A7fBBA96097CC8d7c' as `0x${string}`
+const NEV_UNDERLYINGS: `0x${string}`[] = [
+  '0x754704Bc059F8C67012fEd69BC8A327a5aafb603',
+  '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A',
+  '0xe7cd86e13AC4309349F30B3435a9d337750fC82D',
+  '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c',
+  '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242',
+  '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a',
+  '0xA3227C5969757783154C60bF0bC1944180ed81B9',
+  '0x1B68626dCa36c7fE922fD2d55E4f631d962dE19c',
+  '0x8498312A6B3CbD158bf0c93AbdCF29E6e4F55081',
+  '0x103222f020e98Bba0AD9809A011FDF8e6F067496',
+  '0x9c82eB49B51F7Dc61e22Ff347931CA32aDc6cd90',
+]
+
+function NeverlandDustClaim({ address }: { address: string }) {
+  const addr = address as `0x${string}`
+
+  const { data: aTokenResults } = useReadContracts({
+    contracts: NEV_UNDERLYINGS.map(u => ({
+      address: NEVERLAND_DATA_PROVIDER.address,
+      abi: NEVERLAND_DATA_PROVIDER.abi,
+      functionName: 'getReserveTokensAddresses' as const,
+      args: [u] as const,
+    })),
+    query: { enabled: !!address },
+  })
+  const aTokenAddrs = (aTokenResults ?? []).flatMap(r =>
+    r.status === 'success' ? [(r.result as [`0x${string}`, `0x${string}`, `0x${string}`])[0]] : []
+  )
+
+  const { data: dustRaw, refetch: refetchDust } = useReadContract({
+    address: NEVERLAND_DUST_REWARDS.address,
+    abi: NEVERLAND_DUST_REWARDS.abi,
+    functionName: 'getUserRewards',
+    args: aTokenAddrs.length > 0 ? [aTokenAddrs, addr, DUST_TOKEN] : undefined,
+    query: { enabled: aTokenAddrs.length > 0, refetchInterval: 30_000 },
+  } as Parameters<typeof useReadContract>[0])
+  const dustAmt = dustRaw ? Number(dustRaw as bigint) / 1e18 : 0
+
+  const claimWrite = useWriteContract()
+  const claimTx    = useWaitForTransactionReceipt({ hash: claimWrite.data })
+  const isPending  = claimWrite.isPending || claimTx.isLoading
+  const isSuccess  = claimTx.isSuccess
+  const claimError = claimWrite.error ?? claimTx.error
+
+  useEffect(() => {
+    if (isSuccess) refetchDust()
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSuccess])
+
+  function handleClaim() {
+    if (!dustRaw || aTokenAddrs.length === 0) return
+    claimWrite.writeContract({
+      address: NEVERLAND_DUST_REWARDS.address,
+      abi: NEVERLAND_DUST_REWARDS.abi,
+      functionName: 'claimRewards',
+      args: [aTokenAddrs, dustRaw as bigint, addr, DUST_TOKEN],
+    })
+  }
+
+  if (dustAmt < 0.0001 && !isSuccess) return null
+
+  return (
+    <tr className="border-b border-white/[0.03] last:border-0 bg-amber-500/[0.03]">
+      <td className="px-4 py-3">
+        <div className="flex items-center gap-1.5">
+          <span className="text-sm font-medium text-amber-300">DUST Rewards</span>
+          <span className="text-[9px] font-semibold px-1.5 py-0.5 rounded border bg-amber-500/10 text-amber-400 border-amber-500/20">Reward</span>
+        </div>
+      </td>
+      <td className="px-3 py-3">
+        <p className="text-xs text-amber-300">{dustAmt.toFixed(4)} DUST</p>
+      </td>
+      <td className="px-3 py-3 hidden sm:table-cell">
+        <p className="text-xs text-emerald-400">claimable</p>
+      </td>
+      <td className="px-4 py-3 text-right">
+        <div className="flex flex-col items-end gap-1">
+          <button
+            onClick={e => { e.stopPropagation(); handleClaim() }}
+            disabled={isPending || isSuccess || dustAmt < 0.001}
+            className="text-xs px-3 py-1 rounded-lg bg-amber-500/20 text-amber-300 border border-amber-500/30 hover:bg-amber-500/30 transition-colors disabled:opacity-40"
+          >
+            {isSuccess ? '✓ Claimed' : isPending ? (claimWrite.isPending ? 'Confirm…' : 'Pending…') : 'Claim'}
+          </button>
+          {claimWrite.data && (
+            <a href={`https://monadexplorer.com/tx/${claimWrite.data}`} target="_blank" rel="noopener noreferrer"
+              onClick={e => e.stopPropagation()}
+              className="text-[10px] text-[#CC3BFF] hover:text-[#BFA2FF] truncate max-w-[100px]">
+              {claimWrite.data.slice(0, 8)}… ↗
+            </a>
+          )}
+          {claimError && (
+            <p className="text-[10px] text-rose-400 max-w-[120px] text-right">
+              {(claimError as Error).message?.split('\n')[0]?.slice(0, 60)}
+            </p>
+          )}
+        </div>
+      </td>
+    </tr>
+  )
+}
+
 // ─── Protocol section ────────────────────────────────────────────────────────
 function ProtocolSection({
-  protocol, positions, onClickPool,
+  protocol, positions, onClickPool, address,
 }: {
   protocol: string
   positions: Position[]
   onClickPool: (poolId: string) => void
+  address?: string
 }) {
   const logo  = PROTOCOL_LOGO[protocol]
   const pColor = PROTOCOL_COLOR[protocol] ?? 'bg-slate-500/10 text-slate-400 border-slate-500/20'
@@ -230,6 +337,10 @@ function ProtocolSection({
                 </tr>
               )
             })}
+            {/* DUST reward row — always shown in Neverland section when wallet connected */}
+            {protocol === 'Neverland' && address && (
+              <NeverlandDustClaim address={address} />
+            )}
           </tbody>
         </table>
       </div>
@@ -338,6 +449,67 @@ function EmptyState() {
   )
 }
 
+// ─── Kuru vault WebSocket — VaultParams for accurate TVL ─────────────────────
+// MarginAccount only shows idle funds. Active limit orders (≈2/3 of vault) are
+// tracked via the Kuru WS frontendOrderbook feed (vaultParams field).
+const KURU_MON_USDC_MARKET = '0x065c9d28e428a0db40191a54d33d5b7c71a9c394'
+const KURU_SIZE_PRECISION  = 1e10
+const KURU_PRICE_PRECISION = 1e18
+
+interface KuruVaultParams {
+  vaultAskMon:  number  // MON in active ask orders
+  vaultBidMon:  number  // MON-equivalent in active bid orders (at bid price)
+  vaultBestBid: number  // best bid price (USDC per MON)
+}
+
+function useKuruVaultWs(): KuruVaultParams | null {
+  const [params, setParams] = useState<KuruVaultParams | null>(null)
+
+  useEffect(() => {
+    let ws: WebSocket | null = null
+    let timer: ReturnType<typeof setTimeout>
+
+    try {
+      ws = new WebSocket('wss://ws.kuru.io/')
+
+      ws.onopen = () => {
+        ws!.send(JSON.stringify({
+          type: 'subscribe',
+          channel: 'frontendOrderbook',
+          market: KURU_MON_USDC_MARKET,
+        }))
+        // Give up after 6s if no usable snapshot
+        timer = setTimeout(() => ws?.close(), 6000)
+      }
+
+      ws.onmessage = (ev) => {
+        try {
+          const msg = JSON.parse(ev.data as string)
+          // snapshot: { type: 'snapshot', data: { vp: { ... } } }
+          // or sometimes top-level vp
+          const vp = msg?.data?.vp ?? msg?.vp
+          if (!vp) return
+
+          const askMon  = Number(vp.vault_ask_order_size  ?? 0) / KURU_SIZE_PRECISION
+          const bidMon  = Number(vp.vault_bid_order_size  ?? 0) / KURU_SIZE_PRECISION
+          const bestBid = Number(vp.vault_best_bid        ?? 0) / KURU_PRICE_PRECISION
+
+          console.log('[KuruWS] VaultParams:', { askMon, bidMon, bestBid })
+          setParams({ vaultAskMon: askMon, vaultBidMon: bidMon, vaultBestBid: bestBid })
+          clearTimeout(timer)
+          ws?.close()
+        } catch { /* ignore parse errors */ }
+      }
+
+      ws.onerror = () => ws?.close()
+    } catch { /* WebSocket not available (SSR guard) */ }
+
+    return () => { clearTimeout(timer); ws?.close() }
+  }, [])
+
+  return params
+}
+
 // ─── Page ────────────────────────────────────────────────────────────────────
 export default function PortfolioPage() {
   const { address, isConnected } = useAccount()
@@ -349,6 +521,40 @@ export default function PortfolioPage() {
   const [loading, setLoading]     = useState(false)
   const [loaded, setLoaded]       = useState(false)
   const [error, setError]         = useState<string | null>(null)
+
+  // Kuru WS params — active limit order sizes (not visible in MarginAccount)
+  const kuruWsParams = useKuruVaultWs()
+
+  // Adjust Kuru positions with active order amounts from WS
+  const displayPositions = useMemo(() => {
+    if (!kuruWsParams) return positions
+    return positions.map(pos => {
+      if (pos.protocol !== 'Kuru' || !pos._kuruMeta) return pos
+      const { fraction, vaultMonIdle, vaultQuoteIdle, monPrice, quotePrice, quoteSym } = pos._kuruMeta
+      // Active orders from WS
+      const activeMon  = kuruWsParams.vaultAskMon
+      const activeUsdc = kuruWsParams.vaultBidMon * kuruWsParams.vaultBestBid
+      // Full vault totals
+      const totalMon   = vaultMonIdle + activeMon
+      const totalUsdc  = vaultQuoteIdle + activeUsdc
+      // User's share
+      const userMon    = totalMon   * fraction
+      const userUsdc   = totalUsdc  * fraction
+      const newUsd     = userMon * monPrice + userUsdc * quotePrice
+      if (newUsd < 0.01) return pos
+      if (Math.abs(newUsd - pos.amountUsd) > 0.01) {
+        console.log(`[KuruWS] ${pos.label}: $${pos.amountUsd.toFixed(2)} → $${newUsd.toFixed(2)} (active: ${activeMon.toFixed(2)} MON + ${activeUsdc.toFixed(2)} USDC)`)
+      }
+      return {
+        ...pos,
+        amountUsd: newUsd,
+        amounts: [
+          { sym: 'MON',    amount: userMon,  usd: userMon  * monPrice   },
+          { sym: quoteSym, amount: userUsdc, usd: userUsdc * quotePrice },
+        ],
+      }
+    })
+  }, [positions, kuruWsParams])
 
   const load = useCallback(async () => {
     if (!address) return
@@ -394,9 +600,10 @@ export default function PortfolioPage() {
   }
 
   // Group positions by protocol (preserve order: sorted by USD)
+  // Use displayPositions — includes WS-adjusted Kuru vault amounts
   const protocolGroups: [string, Position[]][] = []
   const seen = new Map<string, Position[]>()
-  for (const pos of positions) {
+  for (const pos of displayPositions) {
     if (!seen.has(pos.protocol)) {
       seen.set(pos.protocol, [])
       protocolGroups.push([pos.protocol, seen.get(pos.protocol)!])
@@ -404,8 +611,8 @@ export default function PortfolioPage() {
     seen.get(pos.protocol)!.push(pos)
   }
 
-  const supplyUsd = positions.filter(p => p.amountUsd >= 0).reduce((s, p) => s + p.amountUsd, 0)
-  const debtUsd   = positions.filter(p => p.amountUsd < 0).reduce((s, p) => s + p.amountUsd, 0)
+  const supplyUsd = displayPositions.filter(p => p.amountUsd >= 0).reduce((s, p) => s + p.amountUsd, 0)
+  const debtUsd   = displayPositions.filter(p => p.amountUsd < 0).reduce((s, p) => s + p.amountUsd, 0)
   const netUsd    = supplyUsd + debtUsd
   const hasDebt   = debtUsd < 0
 
@@ -459,12 +666,12 @@ export default function PortfolioPage() {
                 <span className="text-slate-600">·</span>
                 <span className="text-slate-400">Borrow <span className="text-red-400 font-medium">{fmtUsd(debtUsd)}</span></span>
               </div>
-            ) : positions.length > 0 && (
-              <p className="text-sm text-slate-500 mt-1">{positions.length} position{positions.length !== 1 ? 's' : ''}</p>
+            ) : displayPositions.length > 0 && (
+              <p className="text-sm text-slate-500 mt-1">{displayPositions.length} position{displayPositions.length !== 1 ? 's' : ''}</p>
             )}
           </div>
 
-          {positions.length === 0 ? (
+          {displayPositions.length === 0 ? (
             <EmptyState />
           ) : (
             <>
@@ -500,6 +707,7 @@ export default function PortfolioPage() {
                     protocol={protocol}
                     positions={pts}
                     onClickPool={poolId => router.push('/pools/' + poolId)}
+                    address={address}
                   />
                 ))}
               </div>

@@ -1,86 +1,140 @@
+import { createPublicClient, http, parseAbi, formatUnits, defineChain } from 'viem'
 import type { LendingPool } from '@/types'
 import { lendingRisk } from '@/lib/risk'
 
+// Morpho redeployed all vaults on Monad with new addresses (0xbeef... vanity prefix for Steakhouse).
+// TVL: read on-chain via totalAssets() for all 13 vaults.
+// APY: 12/13 vaults are Morpho V2 → use vaultV2s GraphQL query (netApy field).
+//      Grove x Steakhouse AUSD (0x32841A85) is V1 → use old vaults query (state.netApy).
+
+const monad = defineChain({
+  id: 143,
+  name: 'Monad',
+  nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
+  rpcUrls: { default: { http: [process.env.MONAD_RPC_URL ?? 'https://rpc.monad.xyz'] } },
+  contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' as `0x${string}` } },
+})
+
+// 13 active Morpho vaults on Monad (from app.morpho.org/monad, May 2026)
+const VAULTS = [
+  { address: '0xbeef04b01e0275D4ac2e2986256BB14E3Ff6ef42', name: 'Steakhouse Prime ETH',          asset: 'WETH',  assetDec: 18 },
+  { address: '0x78999cc96d2Ba0341588C60CcB0E91c6C33CF371', name: 'Hyperithm USDC Apex',           asset: 'USDC',  assetDec: 6  },
+  { address: '0x32841A8511D5c2c5b253f45668780B99139e476D', name: 'Grove x Steakhouse AUSD',       asset: 'AUSD',  assetDec: 6  },
+  { address: '0xe09A93786275546690247d70f1767cF0b69e8Ea0', name: 'Hyperithm cbBTC Apex',          asset: 'cbBTC', assetDec: 8  },
+  { address: '0x80017bF0f793EBbE9679Cd61ff0e395B62CAbB59', name: 'August USDC V2',               asset: 'USDC',  assetDec: 6  },
+  { address: '0xbeeff300E9A9caeC7beEA740ab8758D33b777509', name: 'Steakhouse High Yield USDT0',  asset: 'USDT0', assetDec: 6  },
+  { address: '0xbeeff421948cDE29644a63FBA4ef5e5a621075d0', name: 'Steakhouse High Yield cbBTC',  asset: 'cbBTC', assetDec: 8  },
+  { address: '0xBeEFfB65df79Baac701307c9605b7aB207355Fdb', name: 'Steakhouse High Yield USD1',   asset: 'USD1',  assetDec: 6  },
+  { address: '0xbeEFf443C3CbA3E369DA795002243BeaC311aB83', name: 'Steakhouse High Yield USDC',   asset: 'USDC',  assetDec: 6  },
+  { address: '0xbeeffeA75cFC4128ebe10C8D7aE22016D215060D', name: 'Steakhouse High Yield AUSD',  asset: 'AUSD',  assetDec: 6  },
+  { address: '0x0ED3615ff949C8A34D15441970900E849A3409FC', name: 'Unified Labs USDC RWA',        asset: 'USDC',  assetDec: 6  },
+  { address: '0xEceF08A3cD83054e8FF6D8Cb9cE41a36b81E8d7E', name: 'UltraYield cbBTC',            asset: 'cbBTC', assetDec: 8  },
+  { address: '0xbeeff96D65Cb80a0029dc9D3C4d7306c3C3A6253', name: 'Steakhouse High Yield ETH',   asset: 'WETH',  assetDec: 18 },
+] as const
+
+// Token addresses for non-stable price lookups
+const WETH_ADDR  = '0xee8c0e9f1bffb4eb878d8f15f368a02a35481242' as `0x${string}`
+const CBBTC_ADDR = '0xd18b7ec58cdf4876f6afebd3ed1730e4ce10414b' as `0x${string}`
+
+// Neverland PriceOracle — returns price in USD with 8 decimals (Chainlink-compatible)
+const PRICE_ORACLE = '0x94bba11004b9877d13bb5e1ae29319b6f7bdedd4' as `0x${string}`
+
+const ERC4626_ABI = parseAbi(['function totalAssets() view returns (uint256)'])
+const ORACLE_ABI  = parseAbi(['function getAssetPrice(address asset) view returns (uint256)'])
+
+// Stablecoins — treat as $1
+const STABLE_ASSETS = new Set(['USDC', 'AUSD', 'USDT0', 'USD1'])
+
+// Morpho API: 12/13 vaults use V2 architecture (vaultV2s query).
+// Grove x Steakhouse AUSD (0x32841A85) uses V1 architecture (vaults query).
 const MORPHO_API = 'https://api.morpho.org/graphql'
 
-const QUERY = `{
-  vaults(where: { chainId_in: [143], listed: true }, first: 50) {
-    items {
-      address
-      name
-      symbol
-      state {
-        netApy
-        totalAssetsUsd
+// V1 vault (Grove x Steakhouse AUSD) — not indexed in vaultV2s
+const GROVE_AUSD = '0x32841A8511D5c2c5b253f45668780B99139e476D'
+
+async function fetchApyMap(): Promise<Map<string, number>> {
+  const map = new Map<string, number>()
+  try {
+    const v2Addrs = VAULTS
+      .filter(v => v.address !== GROVE_AUSD)
+      .map(v => `"${v.address.toLowerCase()}"`)
+      .join(',')
+
+    const query = `{
+      vaultV2s(where: { address_in: [${v2Addrs}] }, first: 20) {
+        items { address netApy }
       }
-      asset {
-        symbol
+      vaults(where: { address_in: ["${GROVE_AUSD.toLowerCase()}"] }) {
+        items { address state { netApy } }
       }
+    }`
+
+    const res = await fetch(MORPHO_API, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ query }),
+      next: { revalidate: 0 },
+    })
+    const json = await res.json()
+
+    for (const v of (json.data?.vaultV2s?.items ?? [])) {
+      map.set(v.address.toLowerCase(), (v.netApy ?? 0) * 100)
     }
+    for (const v of (json.data?.vaults?.items ?? [])) {
+      map.set(v.address.toLowerCase(), (v.state?.netApy ?? 0) * 100)
+    }
+    console.log(`[Morpho] APY from API: ${map.size}/13 vaults indexed`)
+  } catch (e) {
+    console.log('[Morpho] APY fetch skipped:', (e as Error).message)
   }
-}`
-
-interface MorphoVault {
-  address: string
-  name: string
-  symbol: string
-  state: {
-    netApy: number | null
-    totalAssetsUsd: number | null
-  }
-  asset: {
-    symbol: string
-  }
-}
-
-// Address prefixes (0x + 8 chars) to skip — too low TVL / not meaningful
-// morpho-4f28cc08: Steakhouse High Yield ETH  ($1.58 TVL)
-// morpho-bc03e505: Steakhouse High Yield AUSD ($81K TVL, early stage)
-const SKIP_ADDR_PREFIXES = new Set(['0x4f28cc08', '0xbc03e505'])
-
-// Vault category labels by address prefix (listed=true vaults on Monad, Apr 2026)
-// Format: "<Curator> · <Category>" — matches Morpho UI groupings
-const VAULT_LABELS: Record<string, string> = {
-  '0xc402b0ca': 'Hyperithm · Apex',        // Hyperithm cbBTC Apex
-  '0xba8424eb': 'Steakhouse · Prime',       // Steakhouse Prime ETH
-  '0xa8665084': 'Hyperithm · Apex',         // Hyperithm USDC Apex
-  '0x961a59fe': 'Steakhouse · High Yield',  // Steakhouse High Yield USDT0
-  '0x8699bfe5': 'Steakhouse · High Yield',  // Steakhouse High Yield USD1
-  '0x802c91d8': 'Steakhouse · High Yield',  // Steakhouse High Yield USDC
-  '0x32841a85': 'Grove · High Yield',       // Grove x Steakhouse High Yield AUSD
-  '0x21649703': 'August',                   // August USDC
-  '0x0f6f5a82': 'Steakhouse · High Yield',  // Steakhouse High Yield cbBTC
+  return map
 }
 
 export async function fetchMorphoPools(): Promise<LendingPool[]> {
-  console.log('[Morpho] Fetching vaults from API...')
+  console.log('[Morpho] Fetching 13 vaults on-chain...')
 
-  const res = await fetch(MORPHO_API, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ query: QUERY }),
-    next: { revalidate: 0 },
-  })
-  if (!res.ok) throw new Error(`[Morpho] API HTTP error: ${res.status}`)
+  const client = createPublicClient({ chain: monad, transport: http(process.env.MONAD_RPC_URL!) })
 
-  const json = await res.json()
-  if (json.errors) throw new Error(`[Morpho] API errors: ${JSON.stringify(json.errors)}`)
+  // Batch: totalAssets() for all 13 vaults + WETH & cbBTC prices from oracle
+  const [onChainResults, apyMap] = await Promise.all([
+    client.multicall({
+      contracts: [
+        ...VAULTS.map(v => ({ address: v.address as `0x${string}`, abi: ERC4626_ABI, functionName: 'totalAssets' as const })),
+        { address: PRICE_ORACLE, abi: ORACLE_ABI, functionName: 'getAssetPrice' as const, args: [WETH_ADDR] },
+        { address: PRICE_ORACLE, abi: ORACLE_ABI, functionName: 'getAssetPrice' as const, args: [CBBTC_ADDR] },
+      ],
+    }),
+    fetchApyMap(),
+  ])
 
-  const vaults: MorphoVault[] = json.data?.vaults?.items ?? []
-  console.log(`[Morpho] Got ${vaults.length} vaults from API`)
+  const wethPrice  = onChainResults[VAULTS.length].status === 'success'     ? Number(onChainResults[VAULTS.length].result as bigint) / 1e8     : 0
+  const cbbtcPrice = onChainResults[VAULTS.length + 1].status === 'success' ? Number(onChainResults[VAULTS.length + 1].result as bigint) / 1e8 : 0
+  console.log(`[Morpho] Prices: WETH=$${wethPrice.toFixed(0)} cbBTC=$${cbbtcPrice.toFixed(0)}`)
 
-  const results: LendingPool[] = []
+  function assetPriceUsd(sym: string): number {
+    if (STABLE_ASSETS.has(sym)) return 1
+    if (sym === 'WETH') return wethPrice
+    if (sym === 'cbBTC') return cbbtcPrice
+    return 0
+  }
+
   const now = new Date().toISOString()
+  const results: LendingPool[] = []
 
-  for (const vault of vaults) {
-    if (!vault.name || !vault.symbol) continue
-    const addrShort = vault.address.toLowerCase().slice(0, 10) // '0x' + 8 chars
-    if (SKIP_ADDR_PREFIXES.has(addrShort)) continue
+  for (let i = 0; i < VAULTS.length; i++) {
+    const vault = VAULTS[i]
+    const res = onChainResults[i]
+    if (res.status !== 'success') {
+      console.log(`[Morpho] ${vault.name}: totalAssets() failed, skipping`)
+      continue
+    }
 
-    const tvl = vault.state.totalAssetsUsd ?? 0
-    const apy = (vault.state.netApy ?? 0) * 100
-    const id = `morpho-${addrShort.slice(2)}`
-    const label = VAULT_LABELS[addrShort] ?? vault.name
+    const totalAssetsRaw = res.result as bigint
+    const totalAssetsNum = Number(formatUnits(totalAssetsRaw, vault.assetDec))
+    const price = assetPriceUsd(vault.asset)
+    const tvl   = totalAssetsNum * price
+    const apy   = apyMap.get(vault.address.toLowerCase()) ?? 0
+    const id    = `morpho-${vault.address.toLowerCase().slice(2, 10)}`
 
     const pool: LendingPool = {
       id,
@@ -88,14 +142,14 @@ export async function fetchMorphoPools(): Promise<LendingPool[]> {
       type: 'lending',
       tvl,
       volume_24h: 0,
-      asset: vault.asset.symbol,
+      asset: vault.asset,
       apy,
       utilization: 0,
       risk_score: lendingRisk({ protocol: 'Morpho', tvl, utilization: 0 }),
       updated_at: now,
     }
 
-    console.log(`[Morpho] ${id} (${label}): asset=${vault.asset.symbol} TVL=$${tvl.toFixed(0)} APY=${apy.toFixed(2)}%`)
+    console.log(`[Morpho] ${id} (${vault.name}): ${vault.asset} TVL=$${tvl.toFixed(0)} APY=${apy.toFixed(2)}%`)
     results.push(pool)
   }
 

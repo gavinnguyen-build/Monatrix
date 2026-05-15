@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 import { useAccount, useConnect, useDisconnect, useConnectors } from 'wagmi'
 
@@ -138,6 +138,18 @@ export function WalletButton() {
   const { address, isConnected } = useAccount()
   const { disconnect } = useDisconnect()
   const [open, setOpen] = useState(false)
+  const [mounted, setMounted] = useState(false)
+  useEffect(() => { setMounted(true) }, [])
+
+  // Before hydration, always render "Connect Wallet" to match server-rendered HTML.
+  // Wallet state (address/isConnected) is only available on the client.
+  if (!mounted) {
+    return (
+      <button className="px-4 py-1.5 text-sm font-semibold bg-[#CC3BFF] text-white rounded-lg hover:opacity-90 transition-all">
+        Connect Wallet
+      </button>
+    )
+  }
 
   if (isConnected && address) {
     return (

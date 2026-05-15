@@ -5,6 +5,9 @@
 
 // Fastlane shMON — ERC4626-like vault, accepts native MON directly
 // asset() = 0xEeee...eeeE (native sentinel) → no approve needed, just send MON
+// Unstake options:
+//   Traditional: requestUnstake(shares) → wait ~22-27h → completeUnstake()  (no fee)
+//   Atomic/Pool: redeem(shares, receiver, owner) → instant, dynamic fee from AtomicUnstakePool
 export const FASTLANE = {
   address: '0x1B68626dCa36c7fE922fD2d55E4f631d962dE19c' as `0x${string}`,
   abi: [
@@ -12,18 +15,90 @@ export const FASTLANE = {
       name: 'deposit',
       type: 'function',
       stateMutability: 'payable',
-      inputs: [
-        { name: 'assets',   type: 'uint256' },
-        { name: 'receiver', type: 'address' },
-      ],
+      inputs: [{ name: 'assets', type: 'uint256' }, { name: 'receiver', type: 'address' }],
       outputs: [{ name: 'shares', type: 'uint256' }],
+    },
+    // Atomic/instant unstake (burns shMON, deducts pool fee, sends MON immediately)
+    {
+      name: 'redeem',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [{ name: 'shares', type: 'uint256' }, { name: 'receiver', type: 'address' }, { name: 'owner', type: 'address' }],
+      outputs: [{ name: 'assets', type: 'uint256' }],
+    },
+    // Traditional unstake step 1: enter queue, returns completion epoch
+    {
+      name: 'requestUnstake',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [{ name: 'shares', type: 'uint256' }],
+      outputs: [{ name: 'completionEpoch', type: 'uint64' }],
+    },
+    // Traditional unstake step 2: claim MON after epoch passes
+    {
+      name: 'completeUnstake',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [],
+      outputs: [],
+    },
+    // Read pending traditional unstake for an address
+    {
+      name: 'getUnstakeRequest',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'account', type: 'address' }],
+      outputs: [{ name: 'amountMon', type: 'uint128' }, { name: 'completionEpoch', type: 'uint64' }],
+    },
+    // Preview MON out for traditional unstake (no fee)
+    {
+      name: 'previewUnstake',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'shares', type: 'uint256' }],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
+    // Preview MON out for atomic/pool unstake (after fee deduction)
+    {
+      name: 'previewRedeem',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'shares', type: 'uint256' }],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
+    // Current marginal fee rate for atomic unstake (RAY = 1e27)
+    {
+      name: 'getCurrentUnstakeFeeRateRay',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+      name: 'convertToShares',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'assets', type: 'uint256' }],
+      outputs: [{ name: 'shares', type: 'uint256' }],
+    },
+    {
+      name: 'balanceOf',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'account', type: 'address' }],
+      outputs: [{ name: '', type: 'uint256' }],
     },
   ] as const,
 }
 
-// Kintsu sMON — NOT ERC4626, custom deposit with slippage protection
+// Kintsu sMON — NOT ERC4626, custom deposit/unstake
 // deposit(minShares, receiver) payable — msg.value = MON amount
-// minShares = 0 for simplicity (no slippage protection in v1)
+// Unstake (2-step):
+//   1. requestUnlock(uint96 shares, uint96 minSpotValue) — adds to batch; spotValue=0 until batch submitted
+//   2. redeem(uint256 unlockIndex, address receiver) — after batch submitted + COOLDOWN_PERIOD
+// Multiple concurrent unlock requests allowed per user (most users have 1, unlockIndex=0)
+// getAllUserUnlockRequests(user) → UnlockRequest[] — check spotValue: 0=awaiting batch, >0=claimable
+// convertToAssets(shares) → does NOT apply exit fee
 export const KINTSU = {
   address: '0xA3227C5969757783154C60bF0bC1944180ed81B9' as `0x${string}`,
   abi: [
@@ -37,11 +112,93 @@ export const KINTSU = {
       ],
       outputs: [{ name: 'shares', type: 'uint96' }],
     },
+    {
+      // Step 1 of unstake — locks sMON in escrow, adds to current batch
+      // minSpotValue = 0 for no slippage protection
+      name: 'requestUnlock',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'shares',        type: 'uint96' },
+        { name: 'minSpotValue',  type: 'uint96' },
+      ],
+      outputs: [{ name: 'spotValue', type: 'uint96' }],
+    },
+    {
+      // Step 2 of unstake — call after batch submitted + COOLDOWN_PERIOD
+      // unlockIndex = position in user's unlock request array (0 for most users)
+      name: 'redeem',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'unlockIndex', type: 'uint256' },
+        { name: 'receiver',    type: 'address' },
+      ],
+      outputs: [{ name: 'assets', type: 'uint96' }],
+    },
+    {
+      // Cancel a pending unlock request (only if batch not yet submitted, spotValue==0)
+      name: 'cancelUnlockRequest',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [{ name: 'unlockIndex', type: 'uint256' }],
+      outputs: [],
+    },
+    {
+      // Returns all pending unlock requests for a user
+      // UnlockRequest { shares uint96, spotValue uint96, batchId uint40, exitFeeInBips uint16 }
+      // spotValue == 0 → batch not submitted (awaiting), spotValue > 0 → submitted (claimable after cooldown)
+      name: 'getAllUserUnlockRequests',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'user', type: 'address' }],
+      outputs: [{
+        name: '',
+        type: 'tuple[]',
+        components: [
+          { name: 'shares',         type: 'uint96'  },
+          { name: 'spotValue',      type: 'uint96'  },
+          { name: 'batchId',        type: 'uint40'  },
+          { name: 'exitFeeInBips',  type: 'uint16'  },
+        ],
+      }],
+    },
+    {
+      // Convert sMON shares → MON (does NOT apply exit fee)
+      name: 'convertToAssets',
+      type: 'function',
+      stateMutability: 'view',
+      inputs:  [{ name: 'shares', type: 'uint96' }],
+      outputs: [{ name: 'assets', type: 'uint96' }],
+    },
+    {
+      name: 'totalPooled',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [],
+      outputs: [{ name: '', type: 'uint96' }],
+    },
+    {
+      name: 'totalSupply',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+      name: 'balanceOf',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'account', type: 'address' }],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
   ] as const,
 }
 
 // Magma gMON — ERC4626 vault, ERC1967 proxy (impl: 0xa1f511e1...78497afd2)
 // depositMON(address receiver, uint256 referralId) payable — native MON, no approve needed
+// Unstake: ERC7540 async — requestRedeem(shares,controller,owner) → wait → redeem(assets,receiver,controller)
+// requestId = 0 for single-controller vaults; pendingRedeemRequest/claimableRedeemRequest to check state
 export const MAGMA = {
   address: '0x8498312A6B3CbD158bf0c93AbdCF29E6e4F55081' as `0x${string}`,
   abi: [
@@ -55,11 +212,97 @@ export const MAGMA = {
       ],
       outputs: [{ name: 'shares', type: 'uint256' }],
     },
+    {
+      name: 'requestRedeem',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'shares',     type: 'uint256' },
+        { name: 'controller', type: 'address' },
+        { name: 'owner',      type: 'address' },
+      ],
+      outputs: [{ name: 'requestId', type: 'uint256' }],
+    },
+    {
+      // ERC7540 redeem — receive WMON (requestId is owner's active request)
+      name: 'redeem',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'requestId',  type: 'uint256' },
+        { name: 'controller', type: 'address' },
+        { name: 'receiver',   type: 'address' },
+      ],
+      outputs: [{ name: 'assets', type: 'uint256' }],
+    },
+    {
+      // redeemMON — same as redeem but unwraps to native MON
+      name: 'redeemMON',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'requestId',  type: 'uint256' },
+        { name: 'controller', type: 'address' },
+        { name: 'receiver',   type: 'address' },
+      ],
+      outputs: [{ name: 'assets', type: 'uint256' }],
+    },
+    {
+      name: 'ownerRequestId',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: '_owner', type: 'address' }],
+      outputs: [{ type: 'uint256' }],
+    },
+    {
+      name: 'convertToAssets',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'shares', type: 'uint256' }],
+      outputs: [{ type: 'uint256' }],
+    },
+    {
+      name: 'pendingRedeemRequest',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [
+        { name: 'requestId',  type: 'uint256' },
+        { name: 'controller', type: 'address' },
+      ],
+      outputs: [{ name: 'pendingShares', type: 'uint256' }],
+    },
+    {
+      name: 'claimableRedeemRequest',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [
+        { name: 'requestId',  type: 'uint256' },
+        { name: 'controller', type: 'address' },
+      ],
+      outputs: [{ name: 'claimableShares', type: 'uint256' }],
+    },
+    {
+      name: 'convertToShares',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'assets', type: 'uint256' }],
+      outputs: [{ name: 'shares', type: 'uint256' }],
+    },
+    {
+      name: 'balanceOf',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'account', type: 'address' }],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
   ] as const,
 }
 
 // Apriori aprMON — ERC4626-like vault, accepts native MON directly
 // deposit(uint256 assets, address receiver) payable — same interface as Fastlane
+// Unstake traditional: requestRedeem(shares,controller,owner) → wait 12-18h → redeem([requestIds], receiver)
+// requestIds tracked on-chain via getUserRequestData(addr, 0, pageSize)
+// Unstake instant: via Apriori swap router 0x4F02... (ABI TBD)
 export const APRIORI = {
   address: '0x0c65A0BC65a5D819235B71F554D210D3F80E0852' as `0x${string}`,
   abi: [
@@ -72,6 +315,94 @@ export const APRIORI = {
         { name: 'receiver', type: 'address' },
       ],
       outputs: [{ name: 'shares', type: 'uint256' }],
+    },
+    {
+      name: 'requestRedeem',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'shares',     type: 'uint256' },
+        { name: 'controller', type: 'address' },
+        { name: 'owner',      type: 'address' },
+      ],
+      outputs: [{ name: 'requestId', type: 'uint256' }],
+    },
+    // Claim completed requests — pass array of requestIds from getUserRequestData
+    {
+      name: 'redeem',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'requestIDs', type: 'uint256[]' },
+        { name: 'receiver',   type: 'address' },
+      ],
+      outputs: [],
+    },
+    // Paginated on-chain request history for a user
+    {
+      name: 'getUserRequestData',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [
+        { name: 'user',       type: 'address' },
+        { name: 'startIndex', type: 'uint256' },
+        { name: 'pageSize',   type: 'uint256' },
+      ],
+      outputs: [{
+        name: 'requestData',
+        type: 'tuple[]',
+        components: [
+          { name: 'id',          type: 'uint256' },
+          { name: 'claimed',     type: 'bool'    },
+          { name: 'claimable',   type: 'bool'    },
+          { name: 'shares',      type: 'uint256' },
+          { name: 'assets',      type: 'uint256' },
+          { name: 'timestamp',   type: 'uint256' },
+          { name: 'unlockEpoch', type: 'uint64'  },
+        ],
+      }],
+    },
+    // Convert aprMON shares → MON (for rate display)
+    {
+      name: 'convertToAssets',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'shares', type: 'uint256' }],
+      outputs: [{ name: 'assets', type: 'uint256' }],
+    },
+    {
+      name: 'pendingRedeemRequest',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [
+        { name: 'requestId',  type: 'uint256' },
+        { name: 'controller', type: 'address' },
+      ],
+      outputs: [{ name: 'pendingShares', type: 'uint256' }],
+    },
+    {
+      name: 'claimableRedeemRequest',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [
+        { name: 'requestId',  type: 'uint256' },
+        { name: 'controller', type: 'address' },
+      ],
+      outputs: [{ name: 'claimableShares', type: 'uint256' }],
+    },
+    {
+      name: 'convertToShares',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'assets', type: 'uint256' }],
+      outputs: [{ name: 'shares', type: 'uint256' }],
+    },
+    {
+      name: 'balanceOf',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'account', type: 'address' }],
+      outputs: [{ name: '', type: 'uint256' }],
     },
   ] as const,
 }
@@ -110,26 +441,52 @@ export const ERC4626_ABI = [
     inputs: [{ name: 'assets', type: 'uint256' }, { name: 'receiver', type: 'address' }],
     outputs: [{ name: 'shares', type: 'uint256' }],
   },
+  {
+    name: 'redeem',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [{ name: 'shares', type: 'uint256' }, { name: 'receiver', type: 'address' }, { name: 'owner', type: 'address' }],
+    outputs: [{ name: 'assets', type: 'uint256' }],
+  },
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'convertToAssets',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'shares', type: 'uint256' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
 ] as const
 
 // ── Morpho Vaults ─────────────────────────────────────────────────────────────
-// ERC4626 vaults — approve asset → deposit(amount, receiver)
-// Vault + asset addresses from api.morpho.org/graphql (chainId 143, listed: true)
+// ERC4626 vaults — deposit: approve asset → deposit(amount, receiver)
+//                — withdraw: redeem(shares, receiver, owner) — no approve needed
+// 13 active vaults from app.morpho.org/monad (May 2026, post-redeploy)
 
 export const MORPHO_VAULTS: Record<string, {
   vault:    `0x${string}`
   asset:    `0x${string}`
   decimals: number
 }> = {
-  'morpho-c402b0ca': { vault: '0xc402B0cACC0C684427dAA40d964c8AE6fDbb96f7', asset: '0xd18B7EC58Cdf4876f6AFebd3Ed1730e4Ce10414b', decimals: 8  }, // cbBTC
-  'morpho-ba8424eb': { vault: '0xba8424EBBEd6C51bEa6d6D903B8815838E6a0322', asset: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242', decimals: 18 }, // WETH
-  'morpho-a8665084': { vault: '0xA8665084D8CD6276c00CA97Cbc0BF4BC9ae94c79', asset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', decimals: 6  }, // USDC
-  'morpho-961a59fe': { vault: '0x961a59Fe249b9795FAE7fA35f9E89629689D5278', asset: '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', decimals: 6  }, // USDT0
-  'morpho-8699bfe5': { vault: '0x8699bfe5c6D74DF561555Bc708dacF165d8E0D73', asset: '0x111111d2bf19e43C34263401e0CAd979eD1cdb61', decimals: 6  }, // USD1
-  'morpho-802c91d8': { vault: '0x802c91d807A8DaCA257c4708ab264B6520964e44', asset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', decimals: 6  }, // USDC
-  'morpho-32841a85': { vault: '0x32841A8511D5c2c5b253f45668780B99139e476D', asset: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a', decimals: 6  }, // AUSD
-  'morpho-21649703': { vault: '0x21649703fe63265058e9f22582552561Af4AfA3f', asset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', decimals: 6  }, // USDC
-  'morpho-0f6f5a82': { vault: '0x0f6F5A8272A4Da23e458aABCBCe6382C5cdc6b77', asset: '0xd18B7EC58Cdf4876f6AFebd3Ed1730e4Ce10414b', decimals: 8  }, // cbBTC
+  'morpho-beef04b0': { vault: '0xbeef04b01e0275D4ac2e2986256BB14E3Ff6ef42', asset: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242', decimals: 18 }, // WETH  — Steakhouse Prime ETH
+  'morpho-78999cc9': { vault: '0x78999cc96d2Ba0341588C60CcB0E91c6C33CF371', asset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', decimals: 6  }, // USDC  — Hyperithm USDC Apex
+  'morpho-32841a85': { vault: '0x32841A8511D5c2c5b253f45668780B99139e476D', asset: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a', decimals: 6  }, // AUSD  — Grove x Steakhouse AUSD
+  'morpho-e09a9378': { vault: '0xe09A93786275546690247d70f1767cF0b69e8Ea0', asset: '0xd18B7EC58Cdf4876f6AFebd3Ed1730e4Ce10414b', decimals: 8  }, // cbBTC — Hyperithm cbBTC Apex
+  'morpho-80017bf0': { vault: '0x80017bF0f793EBbE9679Cd61ff0e395B62CAbB59', asset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', decimals: 6  }, // USDC  — August USDC V2
+  'morpho-beeff300': { vault: '0xbeeff300E9A9caeC7beEA740ab8758D33b777509', asset: '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', decimals: 6  }, // USDT0 — Steakhouse High Yield USDT0
+  'morpho-beeff421': { vault: '0xbeeff421948cDE29644a63FBA4ef5e5a621075d0', asset: '0xd18B7EC58Cdf4876f6AFebd3Ed1730e4Ce10414b', decimals: 8  }, // cbBTC — Steakhouse High Yield cbBTC
+  'morpho-beeffb65': { vault: '0xBeEFfB65df79Baac701307c9605b7aB207355Fdb', asset: '0x111111d2bf19e43C34263401e0CAd979eD1cdb61', decimals: 6  }, // USD1  — Steakhouse High Yield USD1
+  'morpho-beeff443': { vault: '0xbeEFf443C3CbA3E369DA795002243BeaC311aB83', asset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', decimals: 6  }, // USDC  — Steakhouse High Yield USDC
+  'morpho-beeffea7': { vault: '0xbeeffeA75cFC4128ebe10C8D7aE22016D215060D', asset: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a', decimals: 6  }, // AUSD  — Steakhouse High Yield AUSD
+  'morpho-0ed3615f': { vault: '0x0ED3615ff949C8A34D15441970900E849A3409FC', asset: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603', decimals: 6  }, // USDC  — Unified Labs USDC RWA
+  'morpho-ecef08a3': { vault: '0xEceF08A3cD83054e8FF6D8Cb9cE41a36b81E8d7E', asset: '0xd18B7EC58Cdf4876f6AFebd3Ed1730e4Ce10414b', decimals: 8  }, // cbBTC — UltraYield cbBTC
+  'morpho-beeff96d': { vault: '0xbeeff96D65Cb80a0029dc9D3C4d7306c3C3A6253', asset: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242', decimals: 18 }, // WETH  — Steakhouse High Yield ETH
 }
 
 // ── Neverland (Aave V3 fork) ──────────────────────────────────────────────────
@@ -147,6 +504,8 @@ export const NEVERLAND_ORACLE = {
 }
 // supply(asset, amount, onBehalfOf, referralCode) — ERC20 approve first
 // borrow(asset, amount, interestRateMode=2, referralCode=0, onBehalfOf) — no approve
+// withdraw(asset, amount, to) — no approve; maxUint256 = withdraw all
+// repay(asset, amount, interestRateMode=2, onBehalfOf) — ERC20 approve first; maxUint256 = repay all variable debt
 // getUserAccountData(user) — returns collateral/debt/availableBorrows/healthFactor
 export const NEVERLAND = {
   pool: '0x80f00661b13cc5f6ccd3885be7b4c9c67545d585' as `0x${string}`,
@@ -164,6 +523,17 @@ export const NEVERLAND = {
       outputs: [],
     },
     {
+      name: 'withdraw',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'asset',  type: 'address' },
+        { name: 'amount', type: 'uint256' },
+        { name: 'to',     type: 'address' },
+      ],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
       name: 'borrow',
       type: 'function',
       stateMutability: 'nonpayable',
@@ -175,6 +545,18 @@ export const NEVERLAND = {
         { name: 'onBehalfOf',       type: 'address' },
       ],
       outputs: [],
+    },
+    {
+      name: 'repay',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'asset',            type: 'address' },
+        { name: 'amount',           type: 'uint256' },
+        { name: 'interestRateMode', type: 'uint256' },
+        { name: 'onBehalfOf',       type: 'address' },
+      ],
+      outputs: [{ name: '', type: 'uint256' }],
     },
     {
       name: 'getUserAccountData',
@@ -218,6 +600,92 @@ export const NEVERLAND_BORROW_RESERVES: Record<string, { asset: `0x${string}`; d
   'neverland-borrowing-ausd':  { asset: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a', decimals: 6  },
 }
 
+// PoolDataProvider: getUserReserveData(asset, user) → aToken balance + variable debt
+//                  getReserveConfigurationData(asset) → ltv (BPS, [1])
+export const NEVERLAND_DATA_PROVIDER = {
+  address: '0xfd0b6b6f736376f7b99ee989c749007c7757fdba' as `0x${string}`,
+  abi: [
+    {
+      name: 'getUserReserveData',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'asset', type: 'address' }, { name: 'user', type: 'address' }],
+      outputs: [
+        { name: 'currentATokenBalance',   type: 'uint256' }, // [0] deposited amount
+        { name: 'currentStableDebt',      type: 'uint256' }, // [1]
+        { name: 'currentVariableDebt',    type: 'uint256' }, // [2] borrowed amount
+        { name: 'principalStableDebt',    type: 'uint256' },
+        { name: 'scaledVariableDebt',     type: 'uint256' },
+        { name: 'stableBorrowRate',       type: 'uint256' },
+        { name: 'liquidityRate',          type: 'uint256' },
+        { name: 'stableRateLastUpdated',  type: 'uint40'  },
+        { name: 'usageAsCollateralEnabled', type: 'bool'  },
+      ],
+    },
+    {
+      name: 'getReserveConfigurationData',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'asset', type: 'address' }],
+      outputs: [
+        { name: 'decimals',                type: 'uint256' }, // [0]
+        { name: 'ltv',                     type: 'uint256' }, // [1] BPS (e.g. 7500 = 75%)
+        { name: 'liquidationThreshold',    type: 'uint256' },
+        { name: 'liquidationBonus',        type: 'uint256' },
+        { name: 'reserveFactor',           type: 'uint256' },
+        { name: 'usageAsCollateralEnabled', type: 'bool'   },
+        { name: 'borrowingEnabled',        type: 'bool'    },
+        { name: 'stableBorrowRateEnabled', type: 'bool'    },
+        { name: 'isActive',                type: 'bool'    },
+        { name: 'isFrozen',                type: 'bool'    },
+      ],
+    },
+    {
+      name: 'getReserveTokensAddresses',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [{ name: 'asset', type: 'address' }],
+      outputs: [
+        { name: 'aTokenAddress',            type: 'address' },
+        { name: 'stableDebtTokenAddress',   type: 'address' },
+        { name: 'variableDebtTokenAddress', type: 'address' },
+      ],
+    },
+  ] as const,
+}
+
+// Aave V3 RewardsController — Neverland DUST incentive rewards
+// getUserRewards: read pending claimable DUST for aTokens[]
+// claimRewards:   claim DUST; pass maxUint256 to claim all
+export const NEVERLAND_DUST_REWARDS = {
+  address: '0x57ea245cCbFAb074baBb9d01d1F0c60525E52cec' as `0x${string}`,
+  abi: [
+    {
+      name: 'getUserRewards',
+      type: 'function',
+      stateMutability: 'view',
+      inputs: [
+        { name: 'assets', type: 'address[]' },
+        { name: 'user',   type: 'address'   },
+        { name: 'reward', type: 'address'   },
+      ],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
+    {
+      name: 'claimRewards',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'assets', type: 'address[]' },
+        { name: 'amount', type: 'uint256'   },
+        { name: 'to',     type: 'address'   },
+        { name: 'reward', type: 'address'   },
+      ],
+      outputs: [{ name: '', type: 'uint256' }],
+    },
+  ] as const,
+}
+
 // ── Curvance Markets ──────────────────────────────────────────────────────────
 // Deposit = supply COLLATERAL (what Curvance's "Collateral" column shows).
 // For some bidirectional markets, Curvance's "Collateral" is actually the adapter's
@@ -244,6 +712,7 @@ export const CURVANCE_MARKETS: Record<string, {
   'curvance-wsrusd-ausd':   { colCToken: '0x251B67Ae7e90fDc6a7B080Ee601913A8B2746A28', colAsset: '0x4809010926aec940b550D34a46A52739f996D75D', colDec: 18, colSym: 'wsrUSD'   },
   'curvance-yzm-ausd':      { colCToken: '0x8626B8f4F64CAeee9549Af8ebbFA591A7425e5ba', colAsset: '0x3a2c4aAae6776dC1c31316De559598f2f952E2cB', colDec: 6,  colSym: 'YZM'      },
   'curvance-vusd-ausd':     { colCToken: '0x42369AFe4bA4225b800b8024Acc5F14f42A3836C', colAsset: '0x8d3F9f9Eb2f5E8B48EFBB4074440D1E2A34Bc365', colDec: 6,  colSym: 'vUSD'     },
+  'curvance-savusd-usdc':   { colCToken: '0x3afB9A1cC0d2b0D62502B84B070601fF0DC84363', colAsset: '0x9648dB94F1e6B19e7D755585542981F97dc806c6', colDec: 18, colSym: 'savUSD'   },
   // Bidirectional markets — each has an oppColCToken for the reverse-direction deposit check
   'curvance-ebtc-wbtc': { colCToken: '0xdB3e888c3b50771821226d30Ab6eC14eB5ba85bA', colAsset: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', colDec: 8,  colSym: 'WBTC', oppColCToken: '0x2840772E14fFbe337aB966727B7D1Dd09BDc76E4', oppColSym: 'eBTC'  },
   'curvance-wmon-ausd': { colCToken: '0x6E182EB501800C555bd5E662E6D350D627F504D8', colAsset: '0x00000000eFE302BEAA2b3e6e1b18d08D69a9012a', colDec: 6,  colSym: 'AUSD', oppColCToken: '0xE01d426B589c7834a5F6B20D7e992A705d3c22ED', oppColSym: 'WMON'  },
@@ -321,6 +790,7 @@ export const CURVANCE_BORROW_MARKETS: Record<string, {
   'curvance-yzm-ausd-borrow':      { colCToken: '0x8626B8f4F64CAeee9549Af8ebbFA591A7425e5ba', colAsset: '0x3a2c4aAae6776dC1c31316De559598f2f952E2cB', colDec: 6,  colSym: 'YZM',      loanCToken: '0xcdc9D2c4EaD8f2A9FD3D6F5a00bA4e6001ab7898', loanDec: 6,  loanSym: 'AUSD' },
   'curvance-vusd-ausd-borrow':     { colCToken: '0x42369AFe4bA4225b800b8024Acc5F14f42A3836C', colAsset: '0x8d3F9f9Eb2f5E8B48EFBB4074440D1E2A34Bc365', colDec: 6,  colSym: 'vUSD',     loanCToken: '0x4806902Ec0320e5334c2B2679FFB58C830348F1c', loanDec: 6,  loanSym: 'AUSD' },
   'curvance-ebtc-wbtc-borrow':     { colCToken: '0x2840772E14fFbe337aB966727B7D1Dd09BDc76E4', colAsset: '0xd691b0aFed67F96CEC28Ab6308Cbe5b2C103b7e9', colDec: 10, colSym: 'eBTC',     loanCToken: '0xdB3e888c3b50771821226d30Ab6eC14eB5ba85bA', loanDec: 8,  loanSym: 'WBTC' },
+  'curvance-savusd-usdc-borrow':   { colCToken: '0x3afB9A1cC0d2b0D62502B84B070601fF0DC84363', colAsset: '0x9648dB94F1e6B19e7D755585542981F97dc806c6', colDec: 18, colSym: 'savUSD',   loanCToken: '0x9891178A1178E4C740Fa61Fd6e30A9D92D897590', loanDec: 6,  loanSym: 'USDC' },
 
   // Reverse borrow markets — col/loan swapped vs the primary market above
   'curvance-wmon-ausd-col-borrow': { colCToken: '0x6E182EB501800C555bd5E662E6D350D627F504D8', colAsset: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', colDec: 6,  colSym: 'AUSD', loanCToken: '0xE01d426B589c7834a5F6B20D7e992A705d3c22ED', loanDec: 18, loanSym: 'WMON' },
@@ -345,6 +815,44 @@ export const KURU_VAULT_ABI = [
       { name: 'quoteAmount', type: 'uint256' },
     ],
     outputs: [{ name: 'shares', type: 'uint256' }],
+  },
+  {
+    // Burns shares → returns proportional MON + quote to receiver. No approve needed.
+    name: 'withdraw',
+    type: 'function',
+    stateMutability: 'nonpayable',
+    inputs: [
+      { name: '_shares',   type: 'uint256' },
+      { name: '_receiver', type: 'address' },
+      { name: '_owner',    type: 'address' },
+    ],
+    outputs: [{ name: 'baseOut', type: 'uint256' }, { name: 'quoteOut', type: 'uint256' }],
+  },
+  {
+    name: 'balanceOf',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [{ name: 'account', type: 'address' }],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    name: 'totalSupply',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
+  },
+  {
+    // Returns total vault assets including active CLOB orders (not just idle MarginAccount funds).
+    // New vault (0x838c): works. Old vault (0xd0f8): reverts — use allowFailure in multicall.
+    name: 'totalAssets',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [
+      { name: 'baseLiquidity',  type: 'uint256' },
+      { name: 'quoteLiquidity', type: 'uint256' },
+    ],
   },
 ] as const
 
@@ -371,7 +879,17 @@ export const KURU_VAULTS: Record<string, {
   quoteDec:   number
   quoteSym:   string
 }> = {
+  // New active vault (Kuru migrated from 0xd0f8 → 0x838c, May 2026)
+  // totalAssets() works on this vault → accurate TVL including active CLOB orders
   'kuru-vault-mon-usdc': {
+    address:    '0x838c2d3fd4db5eb2f185cbe7697fbaace52b34d7',
+    quoteToken: '0x754704bc059f8c67012fed69bc8a327a5aafb603', // USDC 6 dec
+    quoteDec:   6,
+    quoteSym:   'USDC',
+  },
+  // Old vault (deprecated) — totalAssets() reverts, use MarginAccount reads as fallback
+  // Keep tracking so users who haven't migrated still see their position
+  'kuru-vault-mon-usdc-v1': {
     address:    '0xd0f8a6422ccdd812f29d8fb75cf5fcd41483badc',
     quoteToken: '0x754704bc059f8c67012fed69bc8a327a5aafb603', // USDC 6 dec
     quoteDec:   6,
@@ -517,8 +1035,102 @@ export const UNISWAP_V3_NPM = {
       inputs:  [{ name: 'data',    type: 'bytes[]' }],
       outputs: [{ name: 'results', type: 'bytes[]' }],
     },
+    // ERC721 enumeration
+    { name: 'balanceOf', type: 'function', stateMutability: 'view',
+      inputs: [{ name: 'owner', type: 'address' }],
+      outputs: [{ name: '', type: 'uint256' }] },
+    { name: 'tokenOfOwnerByIndex', type: 'function', stateMutability: 'view',
+      inputs: [{ name: 'owner', type: 'address' }, { name: 'index', type: 'uint256' }],
+      outputs: [{ name: '', type: 'uint256' }] },
+    // Position data (indices [2..11] = token0,token1,fee,tickLower,tickUpper,liquidity,fg0,fg1,tokensOwed0,tokensOwed1)
+    { name: 'positions', type: 'function', stateMutability: 'view',
+      inputs: [{ name: 'tokenId', type: 'uint256' }],
+      outputs: [
+        { name: 'nonce',                    type: 'uint96'  },
+        { name: 'operator',                 type: 'address' },
+        { name: 'token0',                   type: 'address' },
+        { name: 'token1',                   type: 'address' },
+        { name: 'fee',                      type: 'uint24'  },
+        { name: 'tickLower',                type: 'int24'   },
+        { name: 'tickUpper',                type: 'int24'   },
+        { name: 'liquidity',                type: 'uint128' },
+        { name: 'feeGrowthInside0LastX128', type: 'uint256' },
+        { name: 'feeGrowthInside1LastX128', type: 'uint256' },
+        { name: 'tokensOwed0',              type: 'uint128' },
+        { name: 'tokensOwed1',              type: 'uint128' },
+      ] },
+    // Remove liquidity (params.liquidity must be > 0 — contract enforced)
+    { name: 'decreaseLiquidity', type: 'function', stateMutability: 'payable',
+      inputs: [{ name: 'params', type: 'tuple', components: [
+        { name: 'tokenId',    type: 'uint256' },
+        { name: 'liquidity',  type: 'uint128' },
+        { name: 'amount0Min', type: 'uint256' },
+        { name: 'amount1Min', type: 'uint256' },
+        { name: 'deadline',   type: 'uint256' },
+      ]}],
+      outputs: [{ name: 'amount0', type: 'uint256' }, { name: 'amount1', type: 'uint256' }] },
+    // Collect owed tokens/fees
+    { name: 'collect', type: 'function', stateMutability: 'payable',
+      inputs: [{ name: 'params', type: 'tuple', components: [
+        { name: 'tokenId',    type: 'uint256' },
+        { name: 'recipient',  type: 'address' },
+        { name: 'amount0Max', type: 'uint128' },
+        { name: 'amount1Max', type: 'uint128' },
+      ]}],
+      outputs: [{ name: 'amount0', type: 'uint256' }, { name: 'amount1', type: 'uint256' }] },
   ] as const,
 }
+
+// Uniswap V3 SwapRouter02 — official Monad deployment (SwapRouter02 = no `deadline` in exactInputSingle)
+// ⚠️ 0x721ac9... is Bean Exchange DLMM Router — DIFFERENT protocol, does NOT support exactInputSingle!
+// SwapRouter02 official address on Monad: https://developers.uniswap.org/docs/protocols/v3/deployments/v3-monad-deployments
+export const UNISWAP_V3_SWAP_ROUTER = {
+  address: '0xfe31f71c1b106eac32f1a19239c9a9a72ddfb900' as `0x${string}`,
+  abi: [
+    {
+      // SwapRouter02: NO deadline field (unlike SwapRouter01). Selector: 0x04e45aaf
+      name: 'exactInputSingle',
+      type: 'function',
+      stateMutability: 'payable',
+      inputs: [{
+        name: 'params', type: 'tuple',
+        components: [
+          { name: 'tokenIn',            type: 'address' },
+          { name: 'tokenOut',           type: 'address' },
+          { name: 'fee',                type: 'uint24'  },
+          { name: 'recipient',          type: 'address' },
+          { name: 'amountIn',           type: 'uint256' },
+          { name: 'amountOutMinimum',   type: 'uint256' },
+          { name: 'sqrtPriceLimitX96',  type: 'uint160' },
+        ],
+      }],
+      outputs: [{ name: 'amountOut', type: 'uint256' }],
+    },
+    {
+      // Unwrap all WMON held by the router to native MON and send to recipient
+      name: 'unwrapWETH9',
+      type: 'function',
+      stateMutability: 'payable',
+      inputs: [
+        { name: 'amountMinimum', type: 'uint256' },
+        { name: 'recipient',     type: 'address' },
+      ],
+      outputs: [],
+    },
+    {
+      name: 'multicall',
+      type: 'function',
+      stateMutability: 'payable',
+      inputs:  [{ name: 'data',    type: 'bytes[]' }],
+      outputs: [{ name: 'results', type: 'bytes[]' }],
+    },
+  ] as const,
+}
+
+// gMON/WMON Uniswap V3 pool — fee tier 10000 (1%)
+// WMON=token0 (0x3b... < 0x84...), gMON=token1
+// Used for Magma instant unstake: gMON → WMON → native MON
+export const GMON_WMON_V3_POOL_ADDRESS = '0x934c3864e3508a9505245642d5a0119ab5dd2446' as `0x${string}`
 
 // V3 pool slot0 — sqrtPriceX96 + currentTick
 export const UNISWAP_V3_POOL_ABI = [
@@ -639,6 +1251,24 @@ export const UNISWAP_V2_ROUTER = {
         { name: 'liquidity', type: 'uint256' },
       ],
     },
+    {
+      name: 'removeLiquidity',
+      type: 'function',
+      stateMutability: 'nonpayable',
+      inputs: [
+        { name: 'tokenA',    type: 'address' },
+        { name: 'tokenB',    type: 'address' },
+        { name: 'liquidity', type: 'uint256' },
+        { name: 'amountAMin', type: 'uint256' },
+        { name: 'amountBMin', type: 'uint256' },
+        { name: 'to',        type: 'address' },
+        { name: 'deadline',  type: 'uint256' },
+      ],
+      outputs: [
+        { name: 'amountA', type: 'uint256' },
+        { name: 'amountB', type: 'uint256' },
+      ],
+    },
   ] as const,
 }
 
@@ -653,6 +1283,13 @@ export const UNISWAP_V2_PAIR_ABI = [
       { name: 'reserve1',           type: 'uint112' },
       { name: 'blockTimestampLast', type: 'uint32'  },
     ],
+  },
+  {
+    name: 'totalSupply',
+    type: 'function',
+    stateMutability: 'view',
+    inputs: [],
+    outputs: [{ name: '', type: 'uint256' }],
   },
 ] as const
 
@@ -941,6 +1578,49 @@ export const PANCAKESWAP_V3_NPM = {
       inputs:  [{ name: 'data',    type: 'bytes[]' }],
       outputs: [{ name: 'results', type: 'bytes[]' }],
     },
+    // ERC721 enumeration
+    { name: 'balanceOf', type: 'function', stateMutability: 'view',
+      inputs: [{ name: 'owner', type: 'address' }],
+      outputs: [{ name: '', type: 'uint256' }] },
+    { name: 'tokenOfOwnerByIndex', type: 'function', stateMutability: 'view',
+      inputs: [{ name: 'owner', type: 'address' }, { name: 'index', type: 'uint256' }],
+      outputs: [{ name: '', type: 'uint256' }] },
+    // Position data (indices [2..11] = token0,token1,fee,tickLower,tickUpper,liquidity,fg0,fg1,tokensOwed0,tokensOwed1)
+    { name: 'positions', type: 'function', stateMutability: 'view',
+      inputs: [{ name: 'tokenId', type: 'uint256' }],
+      outputs: [
+        { name: 'nonce',                    type: 'uint96'  },
+        { name: 'operator',                 type: 'address' },
+        { name: 'token0',                   type: 'address' },
+        { name: 'token1',                   type: 'address' },
+        { name: 'fee',                      type: 'uint24'  },
+        { name: 'tickLower',                type: 'int24'   },
+        { name: 'tickUpper',                type: 'int24'   },
+        { name: 'liquidity',                type: 'uint128' },
+        { name: 'feeGrowthInside0LastX128', type: 'uint256' },
+        { name: 'feeGrowthInside1LastX128', type: 'uint256' },
+        { name: 'tokensOwed0',              type: 'uint128' },
+        { name: 'tokensOwed1',              type: 'uint128' },
+      ] },
+    // Remove liquidity (params.liquidity must be > 0 — contract enforced)
+    { name: 'decreaseLiquidity', type: 'function', stateMutability: 'payable',
+      inputs: [{ name: 'params', type: 'tuple', components: [
+        { name: 'tokenId',    type: 'uint256' },
+        { name: 'liquidity',  type: 'uint128' },
+        { name: 'amount0Min', type: 'uint256' },
+        { name: 'amount1Min', type: 'uint256' },
+        { name: 'deadline',   type: 'uint256' },
+      ]}],
+      outputs: [{ name: 'amount0', type: 'uint256' }, { name: 'amount1', type: 'uint256' }] },
+    // Collect owed tokens/fees
+    { name: 'collect', type: 'function', stateMutability: 'payable',
+      inputs: [{ name: 'params', type: 'tuple', components: [
+        { name: 'tokenId',    type: 'uint256' },
+        { name: 'recipient',  type: 'address' },
+        { name: 'amount0Max', type: 'uint128' },
+        { name: 'amount1Max', type: 'uint128' },
+      ]}],
+      outputs: [{ name: 'amount0', type: 'uint256' }, { name: 'amount1', type: 'uint256' }] },
   ] as const,
 }
 

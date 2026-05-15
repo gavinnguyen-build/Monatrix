@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { PoolTable } from '@/components/PoolTable'
 import { supabase } from '@/lib/supabase'
 import { fromRow } from '@/lib/normalize'
@@ -156,7 +157,7 @@ export default async function DiscoverPage() {
           </p>
         </div>
       ) : (
-        <PoolTable pools={pools} />
+        <Suspense><PoolTable pools={pools} /></Suspense>
       )}
     </div>
   )

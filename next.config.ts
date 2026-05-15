@@ -36,6 +36,8 @@ const securityHeaders = [
         "https://monad.goldsky.com",
         "wss://*.walletconnect.com",
         "https://*.walletconnect.com",
+        "wss://ws.kuru.io",
+        "https://api.coingecko.com",
       ].join(' '),
       "font-src 'self'",
       "frame-src 'none'",

@@ -19,13 +19,15 @@ const MARGIN_ACCT = '0x2a68ba1833cdf93fa9da1eebd7f46242ad8e90c5'
 const GET_BALANCE_SEL = '0xd4fac45d'
 
 // Managed yield vaults (separate product from CLOB markets)
-// Vault addresses verified via MonadVision — must use correct addr or TVL will read 0
+// Kuru migrated from old vault (0xd0f8) to new vault (0x838c) in May 2026.
+// New vault supports totalAssets() → accurate TVL including active CLOB orders.
 const KURU_VAULTS = [
-  { addr: '0xd0f8a6422ccdd812f29d8fb75cf5fcd41483badc', token0: 'MON', token1: 'USDC', token0Addr: MON_ZERO, token1Addr: USDC_ADDR, token0Dec: 18, token1Dec: 6 },
+  { addr: '0x838c2d3fd4db5eb2f185cbe7697fbaace52b34d7', token0: 'MON', token1: 'USDC', token0Addr: MON_ZERO, token1Addr: USDC_ADDR, token0Dec: 18, token1Dec: 6 },
 ]
 
-// Only track top 2 pairs by volume
-const TARGET_PAIRS = new Set(['MON-USDC', 'AUSD-USDC'])
+// Spot pools temporarily disabled — Kuru is fixing issues. Re-enable when ready.
+// To re-enable: restore Set(['MON-USDC', 'AUSD-USDC'])
+const TARGET_PAIRS = new Set<string>([])
 
 function ilRisk(t0: string, t1: string): 'low' | 'medium' | 'high' {
   const s0 = STABLES.has(t0.toUpperCase())
@@ -267,17 +269,29 @@ export async function fetchKuruVaultPools(): Promise<LPPool[]> {
   const now = new Date().toISOString()
 
   for (const v of KURU_VAULTS) {
-    // Get balances in parallel
-    const [monRaw, wmonRaw, quoteRaw] = await Promise.all([
-      getMarginBalance(v.addr, v.token0Addr),
-      getMarginBalance(v.addr, WMON_ADDR),
-      getMarginBalance(v.addr, v.token1Addr),
-    ])
-
-    const token0Amt = Number(monRaw + wmonRaw) / 10 ** v.token0Dec
-    const token1Amt = Number(quoteRaw) / 10 ** v.token1Dec
     const token0Price = priceByAddr[v.token0Addr] ?? 0
     const token1Price = priceByAddr[v.token1Addr] ?? 1.0
+
+    // Prefer totalAssets() — includes active CLOB orders, gives accurate vault TVL.
+    // Falls back to MarginAccount idle reads if totalAssets() is unavailable.
+    let token0Amt = 0
+    let token1Amt = 0
+    const assets = await fetchVaultAssets(v.addr, v.token0Dec, v.token1Dec)
+    if (assets) {
+      token0Amt = assets.baseAmt
+      token1Amt = assets.quoteAmt
+      console.log(`[KuruVaults] ${v.token0}/${v.token1}: totalAssets() → ${token0Amt.toFixed(0)} ${v.token0} + ${token1Amt.toFixed(0)} ${v.token1}`)
+    } else {
+      const [monRaw, wmonRaw, quoteRaw] = await Promise.all([
+        getMarginBalance(v.addr, v.token0Addr),
+        getMarginBalance(v.addr, WMON_ADDR),
+        getMarginBalance(v.addr, v.token1Addr),
+      ])
+      token0Amt = Number(monRaw + wmonRaw) / 10 ** v.token0Dec
+      token1Amt = Number(quoteRaw) / 10 ** v.token1Dec
+      console.log(`[KuruVaults] ${v.token0}/${v.token1}: MarginAccount fallback → ${token0Amt.toFixed(0)} ${v.token0} + ${token1Amt.toFixed(0)} ${v.token1}`)
+    }
+
     const tvl = token0Amt * token0Price + token1Amt * token1Price
 
     if (tvl < 100) {

@@ -3,13 +3,15 @@
 
 import { createPublicClient, http, defineChain, parseAbi, keccak256, encodeAbiParameters, type Address } from 'viem'
 import { loadV4TokenIds } from './v4positions'
+import { getTokenPrices } from './prices'
 import {
-  MORPHO_VAULTS, CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS, KURU_VAULTS, KURU_MARGIN_ACCOUNT,
+  MORPHO_VAULTS, CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS, KURU_VAULTS, KURU_VAULT_ABI, KURU_MARGIN_ACCOUNT,
   CLOBER_LV, CLOBER_POOLS,
   UNISWAP_V3_NPM, UNISWAP_V3_POOLS,
   PANCAKESWAP_V3_NPM, PANCAKESWAP_V3_POOLS,
   UNISWAP_V4_POSITION_MANAGER, UNISWAP_V4_STATE_VIEW, UNISWAP_V4_POOLS,
   UNISWAP_V2_POOLS, UNISWAP_V2_PAIR_ABI,
+  KINTSU,
 } from './contracts'
 
 // ─── Chain ──────────────────────────────────────────────────────────────────
@@ -33,6 +35,8 @@ const CONVERT_ABI     = parseAbi(['function convertToAssets(uint256 shares) view
 const EXCH_RATE_ABI   = parseAbi(['function exchangeRateStored() view returns (uint256)'])
 const TOTAL_SUP_ABI   = parseAbi(['function totalSupply() view returns (uint256)'])
 const GET_BALANCE_ABI = parseAbi(['function getBalance(address user, address token) view returns (uint256)'])
+// ERC7540 async vault — pending/claimable redeem request (Magma, Apriori)
+const PENDING_REDEEM_ABI = parseAbi(['function pendingRedeemRequest(uint256 requestId, address controller) view returns (uint256)'])
 // Curvance loanCToken borrow balance — NOT Compound V2; uses debtBalance(address)
 const BORROW_BAL_ABI = parseAbi(['function debtBalance(address account) view returns (uint256)'])
 // Aave V3 RewardsController — Neverland DUST rewards
@@ -295,12 +299,27 @@ export interface Position {
   amounts?:     TokenAmount[]  // per-token balance breakdown
   rewards?:     TokenAmount[]  // per-token claimable fees/rewards
   rewardUsd?:   number
+  // Kuru vault: raw vault totals (all users) used for WS-based adjustment in portfolio page
+  _kuruMeta?: {
+    fraction:       number  // user's share fraction (userShares / totalShares)
+    vaultMonIdle:   number  // total vault idle MON in MarginAccount (all users)
+    vaultQuoteIdle: number  // total vault idle quote token in MarginAccount (all users)
+    monPrice:       number
+    quotePrice:     number
+    quoteSym:       string
+  }
 }
 
 // ─── Main ────────────────────────────────────────────────────────────────────
 export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
   const client = createPublicClient({ chain: monad, transport: http('https://rpc3.monad.xyz') })
   const positions: Position[] = []
+
+  // ── CoinGecko prices (same source as adapters + Kuru UI) ─────────────────────
+  // DEX on-chain prices may lag CEX/oracle prices due to thin liquidity.
+  // CoinGecko aggregates across CEX + DEX, giving the most representative price.
+  const cgPrices = await getTokenPrices(['MON', 'WETH', 'WBTC']).catch(() => ({} as Record<string, number>))
+  console.log(`[Portfolio] MON=$${cgPrices['MON']?.toFixed(4) ?? '?'} WETH=$${cgPrices['WETH']?.toFixed(0) ?? '?'} (CoinGecko)`)
 
   // ── Batch 1 (parallel): DEX slot0 prices + aToken addresses ─────────────────
   const [v3PriceRes, v4PriceRes, aTokenResults] = await Promise.all([
@@ -342,9 +361,11 @@ export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
     return (res.result as [bigint, number])[0]
   }
 
-  // [0] WMON/USDC — MON price (direct token0 price in token1)
+  // [0] WMON/USDC — MON price (DEX on-chain, used as fallback only)
   const monSqrt = getSqrt(v3PriceRes[0])
-  const monPrice = monSqrt ? sqrtX96ToToken0Price(monSqrt, V3_PRICE_POOLS[0].t0Dec, V3_PRICE_POOLS[0].t1Dec) : 0
+  const monPriceDex = monSqrt ? sqrtX96ToToken0Price(monSqrt, V3_PRICE_POOLS[0].t0Dec, V3_PRICE_POOLS[0].t1Dec) : 0
+  // Prefer CoinGecko: aggregates CEX+DEX prices, same source as adapters and Kuru UI
+  const monPrice = cgPrices['MON'] ?? monPriceDex
   if (monPrice) {
     priceMap[WMON_ADDR] = monPrice
     // LST tokens track MON 1:1 (convertToAssets handles the actual ratio)
@@ -357,12 +378,14 @@ export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
   // [1] USDC/WETH — WETH price (inverse: we get price of USDC in WETH, flip it)
   const wethSqrt = getSqrt(v3PriceRes[1])
   const usdcPerWeth = wethSqrt ? sqrtX96ToToken0Price(wethSqrt, V3_PRICE_POOLS[1].t0Dec, V3_PRICE_POOLS[1].t1Dec) : 0
-  const wethPrice = usdcPerWeth > 0 ? 1 / usdcPerWeth : 0
+  const wethPriceDex = usdcPerWeth > 0 ? 1 / usdcPerWeth : 0
+  const wethPrice = cgPrices['WETH'] ?? wethPriceDex
   if (wethPrice) priceMap['0xee8c0e9f1bffb4eb878d8f15f368a02a35481242'] = wethPrice  // WETH
 
-  // [2] WBTC/USDC — WBTC price (direct)
+  // [2] WBTC/USDC — WBTC price (CoinGecko preferred, DEX fallback)
   const wbtcSqrt = getSqrt(v3PriceRes[2])
-  if (wbtcSqrt) priceMap['0x0555e30da8f98308edb960aa94c0db47230d2b9c'] = sqrtX96ToToken0Price(wbtcSqrt, V3_PRICE_POOLS[2].t0Dec, V3_PRICE_POOLS[2].t1Dec)
+  const wbtcPriceDex = wbtcSqrt ? sqrtX96ToToken0Price(wbtcSqrt, V3_PRICE_POOLS[2].t0Dec, V3_PRICE_POOLS[2].t1Dec) : 0
+  if (cgPrices['WBTC'] ?? wbtcPriceDex) priceMap['0x0555e30da8f98308edb960aa94c0db47230d2b9c'] = cgPrices['WBTC'] ?? wbtcPriceDex
 
   // [3] USDC/DUST — DUST price (inverse)
   const dustSqrt = getSqrt(v3PriceRes[3])
@@ -456,20 +479,93 @@ export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
     .filter(x => x.shares > 0n)
 
   if (lstActive.length > 0) {
-    const underlyings = await client.multicall({
-      contracts: lstActive.map(({ t, shares }) => ({
+    const hasKintsu = lstActive.some(x => x.t.protocol === 'Kintsu')
+
+    // Kintsu has no convertToAssets — fetch totalPooled/totalSupply for exchange rate
+    const [underlyings, kintsuRate] = await Promise.all([
+      client.multicall({
+        contracts: lstActive.map(({ t, shares }) => ({
+          address: t.address, abi: CONVERT_ABI,
+          functionName: 'convertToAssets' as const, args: [shares] as const,
+        })),
+        allowFailure: true,
+      }),
+      hasKintsu ? client.multicall({
+        contracts: [
+          { address: KINTSU.address, abi: KINTSU.abi, functionName: 'totalPooled' as const, args: [] as const },
+          { address: KINTSU.address, abi: KINTSU.abi, functionName: 'totalSupply' as const, args: [] as const },
+        ],
+        allowFailure: true,
+      }) : Promise.resolve(null),
+    ])
+
+    lstActive.forEach(({ t, shares }, i) => {
+      let monEquivalent: bigint
+      if (t.protocol === 'Kintsu' && kintsuRate) {
+        const pooled = kintsuRate[0].status === 'success' ? kintsuRate[0].result as bigint : 0n
+        const supply = kintsuRate[1].status === 'success' ? kintsuRate[1].result as bigint : 0n
+        monEquivalent = (pooled > 0n && supply > 0n) ? (shares * pooled) / supply : shares
+      } else {
+        const r = underlyings[i]
+        monEquivalent = r.status === 'success' ? r.result as bigint : shares
+      }
+      // BALANCE: actual token balance (gMON/shMON/sMON/aprMON)
+      // REWARDS: appreciation = monEquivalent - shares (reward tích lũy từ exchange rate)
+      // amountUsd: based on MON equivalent (correct USD value)
+      const tokenAmt = Number(shares) / 10 ** t.dec
+      const monAmt   = Number(monEquivalent) / 10 ** t.dec
+      const rewardMon = monAmt - tokenAmt  // positive when rate > 1:1
+      const monPx = price(t.address)
+      const usd = monAmt * monPx
+      if (usd < 0.01) return
+      positions.push({
+        protocol: t.protocol, label: t.sym, tokenSym: t.sym,
+        amount: tokenAmt, amountUsd: usd,
+        poolId: t.poolId, positionType: 'Staking',
+        ...(rewardMon > 0.0001 ? {
+          rewards: [{ sym: 'MON', amount: rewardMon, usd: rewardMon * monPx }],
+          rewardUsd: rewardMon * monPx,
+        } : {}),
+      })
+    })
+  }
+
+  // ── Magma + Apriori pending redemptions (ERC7540 async) ──────────────────
+  const ERC7540_TOKENS = [
+    { sym: 'gMON',   address: '0x8498312A6B3CbD158bf0c93AbdCF29E6e4F55081' as Address, dec: 18, protocol: 'Magma',   poolId: 'magma-gmon'     },
+    { sym: 'aprMON', address: '0x0c65A0BC65a5D819235B71F554D210D3F80E0852' as Address, dec: 18, protocol: 'Apriori',  poolId: 'apriori-aprmon' },
+  ]
+  const pendingRedeemResults = await client.multicall({
+    contracts: ERC7540_TOKENS.map(t => ({
+      address: t.address, abi: PENDING_REDEEM_ABI,
+      functionName: 'pendingRedeemRequest' as const, args: [0n, wallet] as const,
+    })),
+    allowFailure: true,
+  })
+  const pendingActive = ERC7540_TOKENS
+    .map((t, i) => ({ t, pendingShares: pendingRedeemResults[i].status === 'success' ? pendingRedeemResults[i].result as bigint : 0n }))
+    .filter(x => x.pendingShares > 0n)
+
+  if (pendingActive.length > 0) {
+    const pendingMon = await client.multicall({
+      contracts: pendingActive.map(({ t, pendingShares }) => ({
         address: t.address, abi: CONVERT_ABI,
-        functionName: 'convertToAssets' as const, args: [shares] as const,
+        functionName: 'convertToAssets' as const, args: [pendingShares] as const,
       })),
       allowFailure: true,
     })
-    lstActive.forEach(({ t, shares }, i) => {
-      const r = underlyings[i]
-      const raw = r.status === 'success' ? r.result as bigint : shares
-      const amt = Number(raw) / 10 ** t.dec
-      const usd = amt * price(t.address)
+    pendingActive.forEach(({ t, pendingShares }, i) => {
+      const r = pendingMon[i]
+      const monAmt = r.status === 'success'
+        ? Number(r.result as bigint) / 10 ** t.dec
+        : Number(pendingShares) / 10 ** t.dec
+      const usd = monAmt * price(t.address)
       if (usd < 0.01) return
-      positions.push({ protocol: t.protocol, label: t.sym, tokenSym: t.sym, amount: amt, amountUsd: usd, poolId: t.poolId, positionType: 'Staking' })
+      positions.push({
+        protocol: t.protocol, label: `${t.sym} (Pending)`, tokenSym: 'MON',
+        amount: monAmt, amountUsd: usd, poolId: t.poolId, positionType: 'Staking',
+        positionId: 'Unbonding ~12h',
+      })
     })
   }
 
@@ -562,42 +658,64 @@ export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
 
   // ── Kuru Vault positions ──────────────────────────────────────────────────
   // Each vault holds MON + quote token. User value = fraction × (monValue + quoteValue)
+  // New vault (0x838c): totalAssets() returns (base, quote) including active CLOB orders → accurate.
+  // Old vault (0xd0f8): totalAssets() reverts → fall back to MarginAccount idle reads only.
   const kuruKeys = Object.keys(KURU_VAULTS)
   if (kuruKeys.length > 0) {
+    const NATIVE_TOKEN_ADDR = '0x0000000000000000000000000000000000000000' as `0x${string}`
     const kuruBatch = await client.multicall({
       contracts: kuruKeys.flatMap(k => [
-        // user shares
-        { address: KURU_VAULTS[k].address, abi: BALANCE_ABI,   functionName: 'balanceOf'   as const, args: [wallet] as const },
-        // total shares
-        { address: KURU_VAULTS[k].address, abi: TOTAL_SUP_ABI, functionName: 'totalSupply' as const },
-        // vault MON balance in MarginAccount
-        { address: KURU_MARGIN_ACCOUNT.address, abi: GET_BALANCE_ABI, functionName: 'getBalance' as const, args: [KURU_VAULTS[k].address, NATIVE_TOKEN] as const },
-        // vault quote token balance
-        { address: KURU_MARGIN_ACCOUNT.address, abi: GET_BALANCE_ABI, functionName: 'getBalance' as const, args: [KURU_VAULTS[k].address, KURU_VAULTS[k].quoteToken] as const },
+        // [0] user shares
+        { address: KURU_VAULTS[k].address, abi: KURU_VAULT_ABI, functionName: 'balanceOf'    as const, args: [wallet] as const },
+        // [1] total shares
+        { address: KURU_VAULTS[k].address, abi: KURU_VAULT_ABI, functionName: 'totalSupply'  as const },
+        // [2] totalAssets() — new vault only; reverts on old vault (allowFailure handles it)
+        { address: KURU_VAULTS[k].address, abi: KURU_VAULT_ABI, functionName: 'totalAssets'  as const },
+        // [3] vault native MON idle in MarginAccount (fallback for old vault)
+        { address: KURU_MARGIN_ACCOUNT.address, abi: KURU_MARGIN_ACCOUNT.abi, functionName: 'getBalance' as const, args: [KURU_VAULTS[k].address, NATIVE_TOKEN_ADDR] as const },
+        // [4] vault WMON idle in MarginAccount (fallback)
+        { address: KURU_MARGIN_ACCOUNT.address, abi: KURU_MARGIN_ACCOUNT.abi, functionName: 'getBalance' as const, args: [KURU_VAULTS[k].address, WMON_ADDR as `0x${string}`] as const },
+        // [5] vault quote token idle in MarginAccount (fallback)
+        { address: KURU_MARGIN_ACCOUNT.address, abi: KURU_MARGIN_ACCOUNT.abi, functionName: 'getBalance' as const, args: [KURU_VAULTS[k].address, KURU_VAULTS[k].quoteToken] as const },
       ]),
       allowFailure: true,
     })
 
     kuruKeys.forEach((k, i) => {
       const v = KURU_VAULTS[k]
-      const base = i * 4
+      const base = i * 6  // 6 reads per vault now
       const userShares  = kuruBatch[base + 0].status === 'success' ? kuruBatch[base + 0].result as bigint : 0n
       const totalShares = kuruBatch[base + 1].status === 'success' ? kuruBatch[base + 1].result as bigint : 0n
-      const vaultMon    = kuruBatch[base + 2].status === 'success' ? kuruBatch[base + 2].result as bigint : 0n
-      const vaultQuote  = kuruBatch[base + 3].status === 'success' ? kuruBatch[base + 3].result as bigint : 0n
 
       if (userShares === 0n || totalShares === 0n) return
 
       const fraction   = Number(userShares) / Number(totalShares)
       const monPrice   = priceMap[WMON_ADDR] ?? 0
       const quotePrice = price(v.quoteToken)
-      const monUsd     = (Number(vaultMon)   / 1e18)             * monPrice
-      const quoteUsd   = (Number(vaultQuote) / 10 ** v.quoteDec) * quotePrice
-      const userUsd    = fraction * (monUsd + quoteUsd)
 
-      if (userUsd < 0.01) return
-      const userMon   = (Number(vaultMon)   / 1e18)             * fraction
-      const userQuote = (Number(vaultQuote) / 10 ** v.quoteDec) * fraction
+      // Prefer totalAssets() (includes active CLOB orders); fallback to MarginAccount idle reads
+      let vaultMonTotal: number
+      let vaultQuoteTotal: number
+      const taRes = kuruBatch[base + 2]
+      if (taRes.status === 'success' && taRes.result) {
+        const [baseLiq, quoteLiq] = taRes.result as [bigint, bigint]
+        vaultMonTotal   = Number(baseLiq)  / 1e18
+        vaultQuoteTotal = Number(quoteLiq) / 10 ** v.quoteDec
+        console.log(`[Portfolio] Kuru ${k}: totalAssets() → ${vaultMonTotal.toFixed(0)} MON + ${vaultQuoteTotal.toFixed(0)} ${v.quoteSym}`)
+      } else {
+        const vaultMonNative = kuruBatch[base + 3].status === 'success' ? kuruBatch[base + 3].result as bigint : 0n
+        const vaultMonWmon   = kuruBatch[base + 4].status === 'success' ? kuruBatch[base + 4].result as bigint : 0n
+        const vaultQuoteRaw  = kuruBatch[base + 5].status === 'success' ? kuruBatch[base + 5].result as bigint : 0n
+        vaultMonTotal   = Number(vaultMonNative + vaultMonWmon) / 1e18
+        vaultQuoteTotal = Number(vaultQuoteRaw) / 10 ** v.quoteDec
+        console.log(`[Portfolio] Kuru ${k}: MarginAccount fallback → ${vaultMonTotal.toFixed(0)} MON + ${vaultQuoteTotal.toFixed(0)} ${v.quoteSym}`)
+      }
+
+      const monUsd   = vaultMonTotal   * monPrice
+      const quoteUsd = vaultQuoteTotal * quotePrice
+      const userUsd  = fraction * (monUsd + quoteUsd)
+      const userMon   = vaultMonTotal   * fraction
+      const userQuote = vaultQuoteTotal * fraction
       positions.push({
         protocol:     'Kuru',
         label:        `MON/${v.quoteSym}`,
@@ -611,6 +729,14 @@ export async function fetchPortfolio(wallet: Address): Promise<Position[]> {
           { sym: 'MON',       amount: userMon,   usd: userMon   * monPrice   },
           { sym: v.quoteSym,  amount: userQuote, usd: userQuote * quotePrice },
         ],
+        _kuruMeta: {
+          fraction,
+          vaultMonIdle:   vaultMonTotal,
+          vaultQuoteIdle: vaultQuoteTotal,
+          monPrice,
+          quotePrice,
+          quoteSym: v.quoteSym,
+        },
       })
     })
   }
