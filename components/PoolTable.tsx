@@ -257,7 +257,7 @@ function ProtocolLogo({ protocol }: { protocol: string }) {
 }
 
 // ─── Sort button ─────────────────────────────────────────────────────────────
-type SortKey = 'apr' | 'tvl' | 'risk_score'
+type SortKey = 'apr' | 'tvl' | 'risk_score' | 'borrow_apy' | 'protocol'
 
 function SortBtn({ k, label, sortKey, sortDir, onToggle }: {
   k: SortKey; label: string; sortKey: SortKey; sortDir: 'asc' | 'desc'
@@ -286,6 +286,10 @@ function LPTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
   const [expandedIL, setExpandedIL] = useState<string | null>(null)
 
   const sorted = [...pools].sort((a, b) => {
+    if (sortKey === 'protocol') {
+      const cmp = a.protocol.localeCompare(b.protocol)
+      return sortDir === 'desc' ? -cmp : cmp
+    }
     let av = 0, bv = 0
     if (sortKey === 'apr')        { av = getApr(a); bv = getApr(b) }
     else if (sortKey === 'tvl')   { av = a.tvl;     bv = b.tvl     }
@@ -311,7 +315,7 @@ function LPTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
               <SortBtn k="risk_score" label="Assessment" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
             </th>
             <th className="px-4 py-3 text-left hidden lg:table-cell">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Protocol</span>
+              <SortBtn k="protocol" label="Protocol" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
             </th>
             <th className="px-4 py-3 w-[88px]" />
           </tr>
@@ -406,6 +410,10 @@ function LSTTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
   const router = useRouter()
 
   const sorted = [...pools].sort((a, b) => {
+    if (sortKey === 'protocol') {
+      const cmp = a.protocol.localeCompare(b.protocol)
+      return sortDir === 'desc' ? -cmp : cmp
+    }
     let av = 0, bv = 0
     if (sortKey === 'apr')        { av = getApr(a); bv = getApr(b) }
     else if (sortKey === 'tvl')   { av = a.tvl;     bv = b.tvl     }
@@ -431,7 +439,7 @@ function LSTTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
               <SortBtn k="risk_score" label="Assessment" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
             </th>
             <th className="px-4 py-3 text-left hidden lg:table-cell">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Protocol</span>
+              <SortBtn k="protocol" label="Protocol" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
             </th>
             <th className="px-4 py-3 w-[88px]" />
           </tr>
@@ -555,8 +563,17 @@ function LendingTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
     }
   })
 
-  // Sort rows by lend APY, TVL, or risk
+  // Sort rows
   const sorted = [...rows].sort((a, b) => {
+    if (sortKey === 'protocol') {
+      const cmp = a.lendPool.protocol.localeCompare(b.lendPool.protocol)
+      return sortDir === 'desc' ? -cmp : cmp
+    }
+    if (sortKey === 'borrow_apy') {
+      const av = a.borrowPool ? (a.borrowPool as BorrowingPool).apy ?? 0 : -1
+      const bv = b.borrowPool ? (b.borrowPool as BorrowingPool).apy ?? 0 : -1
+      return sortDir === 'desc' ? bv - av : av - bv
+    }
     let av = 0, bv = 0
     if (sortKey === 'apr') {
       av = (a.lendPool as LendingPool).apy ?? 0
@@ -584,7 +601,7 @@ function LendingTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
               <SortBtn k="apr" label="APY Lend" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
             </th>
             <th className="px-4 py-3 text-left hidden sm:table-cell">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">APY Borrow</span>
+              <SortBtn k="borrow_apy" label="APY Borrow" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
             </th>
             <th className="px-4 py-3 text-left">
               <SortBtn k="tvl" label="Deposit" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
@@ -593,7 +610,7 @@ function LendingTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
               <SortBtn k="risk_score" label="Assessment" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
             </th>
             <th className="px-4 py-3 text-left hidden lg:table-cell">
-              <span className="text-xs font-medium uppercase tracking-wider text-slate-500">Protocol</span>
+              <SortBtn k="protocol" label="Protocol" sortKey={sortKey} sortDir={sortDir} onToggle={onToggleSort} />
             </th>
             <th className="px-4 py-3 w-[120px]" />
           </tr>
