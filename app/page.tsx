@@ -4,6 +4,9 @@ import { supabase } from '@/lib/supabase'
 import { fromRow } from '@/lib/normalize'
 import type { Pool, LPPool, PoolRow } from '@/types'
 
+// Force server-render on every request so cron data updates are visible immediately
+export const dynamic = 'force-dynamic'
+
 async function getPools(): Promise<Pool[]> {
   try {
     const { data, error } = await supabase
