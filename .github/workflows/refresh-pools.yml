@@ -1,0 +1,28 @@
+name: Refresh Pool Data
+
+on:
+  schedule:
+    - cron: '0 */4 * * *'   # Every 4 hours: 00:00, 04:00, 08:00, 12:00, 16:00, 20:00 UTC
+  workflow_dispatch:          # Allow manual trigger from GitHub Actions UI
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Call cron endpoint
+        run: |
+          response=$(curl -s -o /tmp/cron_response.json -w "%{http_code}" \
+            -X GET "${{ secrets.APP_URL }}/api/cron" \
+            -H "x-cron-secret: ${{ secrets.CRON_SECRET }}")
+
+          echo "HTTP status: $response"
+          echo "Response: $(cat /tmp/cron_response.json)"
+
+          if [ "$response" != "200" ]; then
+            echo "Cron job failed with status $response"
+            exit 1
+          fi
+
+          count=$(cat /tmp/cron_response.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(d.get('count', 0))")
+          errors=$(cat /tmp/cron_response.json | python3 -c "import sys,json; d=json.load(sys.stdin); print(len(d.get('errors', [])))")
+          echo "Pools updated: $count | Adapter errors: $errors"
