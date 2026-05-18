@@ -76,10 +76,20 @@ interface GeckoPool {
 
 async function fetchBatch(addresses: string[]): Promise<GeckoPool[]> {
   const url = `${GECKO_MULTI}/${addresses.join(',')}`
-  const res = await fetch(url, { headers: { Accept: 'application/json' }, next: { revalidate: 0 } })
-  if (!res.ok) throw new Error(`[Uniswap] GeckoTerminal HTTP ${res.status}`)
-  const json = await res.json()
-  return json.data ?? []
+  for (let attempt = 0; attempt < 3; attempt++) {
+    const res = await fetch(url, { headers: { Accept: 'application/json' }, next: { revalidate: 0 } })
+    if (res.status === 429) {
+      const retryAfter = parseInt(res.headers.get('Retry-After') ?? '0', 10)
+      const wait = Math.max(65, retryAfter) * 1000  // GeckoTerminal sends Retry-After: 0; enforce 65s minimum
+      console.warn(`[Uniswap] GeckoTerminal 429 — waiting ${wait / 1000}s before retry (attempt ${attempt + 1})`)
+      await new Promise(r => setTimeout(r, wait))
+      continue
+    }
+    if (!res.ok) throw new Error(`[Uniswap] GeckoTerminal HTTP ${res.status}`)
+    const json = await res.json()
+    return json.data ?? []
+  }
+  throw new Error('[Uniswap] GeckoTerminal 429 after 3 retries')
 }
 
 // ─── On-chain TVL via V4 StateView tick bitmap scan ───────────────────────────

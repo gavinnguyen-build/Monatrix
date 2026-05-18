@@ -41,23 +41,26 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  // Phase 1: REST-only adapters (no RPC calls)
-  const [cloberResult, morphoResult, pancakeResult] = await Promise.allSettled([
+  // Phase 1: REST-only adapters (no RPC calls, no GeckoTerminal)
+  const [cloberResult, morphoResult] = await Promise.allSettled([
     fetchCloberPools(),
     fetchMorphoPools(),
-    fetchPancakeSwapPools(),
   ])
   collect('Clober', cloberResult)
   collect('Morpho', morphoResult)
-  collect('PancakeSwap', pancakeResult)
 
   // Phase 2: RPC-heavy adapters — sequential to stay under RPC rate limit
-  // Uniswap now makes RPC calls (tick bitmap TVL) so it runs here too
+  // PancakeSwap runs first (uses GeckoTerminal), then Uniswap (also uses GeckoTerminal)
+  // with natural spacing from RPC calls between them to avoid GeckoTerminal 429
+  // PancakeSwap runs first (uses GeckoTerminal ~5 requests with 3s delays → last at ~t=12s).
+  // Kuru + KuruVaults run next (RPC-heavy, ~30s total), pushing Uniswap's GeckoTerminal
+  // requests to ~t=55s after PancakeSwap's last page — well outside the 30s rate limit window.
   for (const [name, fn] of [
+    ['PancakeSwap', fetchPancakeSwapPools],
     ['Apriori', fetchAprioriPools],
-    ['Uniswap', fetchUniswapPools],
     ['Kuru', fetchKuruPools],
     ['KuruVaults', fetchKuruVaultPools],
+    ['Uniswap', fetchUniswapPools],
     ['Neverland', fetchNeverlandPools],
     ['Curvance', fetchCurvancePools],
     ['Fastlane', fetchFastlanePools],
@@ -72,7 +75,10 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'No data fetched' }, { status: 500 })
   }
 
-  const rows = pools.map(toRow)
+  // Deduplicate by id — last-write wins (handles duplicate IDs across adapters or pages)
+  const rowMap = new Map<string, ReturnType<typeof toRow>>()
+  for (const pool of pools) rowMap.set(pool.id, toRow(pool))
+  const rows = [...rowMap.values()]
   const { error } = await supabaseAdmin
     .from('pools')
     .upsert(rows, { onConflict: 'id' })
