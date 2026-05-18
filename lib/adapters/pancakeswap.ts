@@ -12,14 +12,10 @@ const monadChain = defineChain({
 })
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-// Discover ALL PancakeSwap pools on Monad via GeckoTerminal dex endpoints
-const GECKO_DEX_V3 = 'https://api.geckoterminal.com/api/v2/networks/monad/dexes/pancakeswap-v3-monad/pools'
-const GECKO_DEX_V2 = 'https://api.geckoterminal.com/api/v2/networks/monad/dexes/pancakeswap-v2-monad/pools'
-const GECKO_DEX = GECKO_DEX_V3  // kept for backward-compat with fetchGeckoPages
-const MAX_PAGES = 15  // safety cap (~300 V3 pools max)
-
-// PancakeSwap V2 fixed fee: 0.25% = 2500 ppm (stored as 25 bps in DB)
-const V2_FEE_PPM = 2500
+// Discover PancakeSwap V3 pools on Monad via GeckoTerminal
+const GECKO_DEX = 'https://api.geckoterminal.com/api/v2/networks/monad/dexes/pancakeswap-v3-monad/pools'
+const MAX_PAGES = 10  // safety cap (~200 V3 pools max)
+const MIN_TVL   = 1000  // exclude ghost pools with near-zero liquidity
 
 const STABLES = new Set(['USDC', 'USDT', 'USDT0', 'AUSD', 'USD1', 'DAI', 'USDS'])
 
@@ -270,146 +266,10 @@ export async function fetchPancakeSwapPools(): Promise<LPPool[]> {
     console.log(`[PancakeSwap] ${id}: TVL=$${tvl.toFixed(0)}, vol=$${vol24h.toFixed(0)}, APR=${feeApr.toFixed(2)}%`)
   }
 
-  if (results.length === 0) throw new Error('[PancakeSwap] No pools after on-chain processing')
+  // Filter out ghost pools with negligible TVL
+  const filtered = results.filter(p => p.tvl >= MIN_TVL)
+  if (filtered.length === 0) throw new Error('[PancakeSwap] No pools after on-chain processing')
 
-  // ── V2 pools ────────────────────────────────────────────────────────────────
-  // PancakeSwap V2 AMM: fixed 0.25% fee, no fee() function on pair contracts.
-  // Fetch one page (V2 has ~17 pools on Monad, fits in 1 request).
-  await new Promise(r => setTimeout(r, 3000))  // rate limit gap before V2 request
-  try {
-    const v2Res = await (async () => {
-      for (let attempt = 0; attempt < 3; attempt++) {
-        const r = await fetch(`${GECKO_DEX_V2}?page=1`, {
-          headers: { Accept: 'application/json' },
-          next: { revalidate: 0 },
-        })
-        if (r.status === 429) {
-          const wait = Math.max(65, parseInt(r.headers.get('Retry-After') ?? '0', 10)) * 1000
-          console.warn(`[PancakeSwap V2] GeckoTerminal 429 — waiting ${wait / 1000}s`)
-          await new Promise(x => setTimeout(x, wait))
-          continue
-        }
-        if (!r.ok) throw new Error(`GeckoTerminal HTTP ${r.status}`)
-        return r
-      }
-      throw new Error('GeckoTerminal 429 after 3 retries')
-    })()
-    const v2Json = await v2Res.json()
-    const v2Pools = (v2Json.data ?? []) as GeckoPool[]
-    console.log(`[PancakeSwap V2] Found ${v2Pools.length} V2 pools`)
-
-    // Enrich tokenMap with V2 included data
-    for (const inc of (v2Json.included ?? []) as { id: string; type: string; attributes: { address?: string; symbol?: string; decimals?: number } }[]) {
-      if (inc.type === 'token' && inc.attributes?.address) {
-        const addr = inc.attributes.address.toLowerCase()
-        if (!tokenMap.has(addr)) {
-          tokenMap.set(addr, {
-            symbol:   inc.attributes.symbol   ?? 'UNKNOWN',
-            decimals: inc.attributes.decimals ?? 18,
-            priceUsd: 0,
-          })
-        }
-      }
-    }
-    for (const pool of v2Pools) {
-      const base  = geckoaddrToAddr(pool.relationships.base_token.data.id)
-      const quote = geckoaddrToAddr(pool.relationships.quote_token.data.id)
-      const bp = parseFloat(pool.attributes.base_token_price_usd)  || 0
-      const qp = parseFloat(pool.attributes.quote_token_price_usd) || 0
-      if (bp > 0) { const t = tokenMap.get(base);  if (t && t.priceUsd === 0) t.priceUsd = bp }
-      if (qp > 0) { const t = tokenMap.get(quote); if (t && t.priceUsd === 0) t.priceUsd = qp }
-    }
-
-    const v2Addrs = v2Pools.map(p => p.attributes.address.toLowerCase() as `0x${string}`)
-
-    // Get token0/token1 for V2 pairs (no fee() function — V2 uses fixed 0.25%)
-    const [v2t0Res, v2t1Res] = await Promise.all([
-      client.multicall({ contracts: v2Addrs.map(a => ({ address: a, abi: POOL_ABI, functionName: 'token0' as const })), allowFailure: true }),
-      client.multicall({ contracts: v2Addrs.map(a => ({ address: a, abi: POOL_ABI, functionName: 'token1' as const })), allowFailure: true }),
-    ])
-
-    // Fetch unknown tokens for V2
-    const v2Unknown = new Set<string>()
-    for (let i = 0; i < v2Addrs.length; i++) {
-      const t0 = v2t0Res[i].status === 'success' ? (v2t0Res[i].result as string).toLowerCase() : null
-      const t1 = v2t1Res[i].status === 'success' ? (v2t1Res[i].result as string).toLowerCase() : null
-      if (t0 && !tokenMap.has(t0)) v2Unknown.add(t0)
-      if (t1 && !tokenMap.has(t1)) v2Unknown.add(t1)
-    }
-    if (v2Unknown.size > 0) {
-      const addrs = [...v2Unknown] as `0x${string}`[]
-      const [symR, decR] = await Promise.all([
-        client.multicall({ contracts: addrs.map(a => ({ address: a, abi: ERC20_ABI, functionName: 'symbol'   as const })), allowFailure: true }),
-        client.multicall({ contracts: addrs.map(a => ({ address: a, abi: ERC20_ABI, functionName: 'decimals' as const })), allowFailure: true }),
-      ])
-      addrs.forEach((addr, i) => tokenMap.set(addr, {
-        symbol:   symR[i].status === 'success' ? (symR[i].result as string) : 'UNKNOWN',
-        decimals: decR[i].status === 'success' ? Number(decR[i].result)     : 18,
-        priceUsd: 0,
-      }))
-    }
-
-    // On-chain TVL for V2 pools
-    const v2PoolTokens = v2Addrs.map((_, i) => {
-      const t0 = v2t0Res[i].status === 'success' ? (v2t0Res[i].result as `0x${string}`) : null
-      const t1 = v2t1Res[i].status === 'success' ? (v2t1Res[i].result as `0x${string}`) : null
-      return t0 && t1 ? { t0, t1 } : null
-    })
-    const v2ValidIdxs = v2PoolTokens.map((t, i) => t ? i : -1).filter(i => i >= 0)
-    const v2BalContracts = v2ValidIdxs.flatMap(i => [
-      { address: v2PoolTokens[i]!.t0.toLowerCase() as `0x${string}`, abi: ERC20_ABI, functionName: 'balanceOf' as const, args: [v2Addrs[i]] },
-      { address: v2PoolTokens[i]!.t1.toLowerCase() as `0x${string}`, abi: ERC20_ABI, functionName: 'balanceOf' as const, args: [v2Addrs[i]] },
-    ])
-    const v2BalRes = await client.multicall({ contracts: v2BalContracts, allowFailure: true })
-    const v2BalMap = new Map<number, { bal0: bigint; bal1: bigint }>()
-    v2ValidIdxs.forEach((poolIdx, j) => {
-      const r0 = v2BalRes[j * 2], r1 = v2BalRes[j * 2 + 1]
-      if (r0?.status === 'success' && r1?.status === 'success')
-        v2BalMap.set(poolIdx, { bal0: r0.result as bigint, bal1: r1.result as bigint })
-    })
-
-    // Build V2 result pools
-    for (let i = 0; i < v2Pools.length; i++) {
-      const gp = v2Pools[i]
-      const t0Addr = v2t0Res[i].status === 'success' ? (v2t0Res[i].result as string).toLowerCase() : null
-      const t1Addr = v2t1Res[i].status === 'success' ? (v2t1Res[i].result as string).toLowerCase() : null
-      if (!t0Addr || !t1Addr) continue
-
-      const t0Info = tokenMap.get(t0Addr)
-      const t1Info = tokenMap.get(t1Addr)
-      const token0 = t0Info?.symbol ?? 'UNKNOWN'
-      const token1 = t1Info?.symbol ?? 'UNKNOWN'
-
-      let tvl = 0
-      const bals = v2BalMap.get(i)
-      if (bals && t0Info && t1Info) {
-        const v0 = t0Info.priceUsd > 0 ? (Number(bals.bal0) / 10 ** t0Info.decimals) * t0Info.priceUsd : 0
-        const v1 = t1Info.priceUsd > 0 ? (Number(bals.bal1) / 10 ** t1Info.decimals) * t1Info.priceUsd : 0
-        tvl = v0 + v1
-      }
-      if (tvl === 0) tvl = parseFloat(gp.attributes.reserve_in_usd) || 0
-
-      const vol24h  = parseFloat(gp.attributes.volume_usd?.h24 ?? '0') || 0
-      const feeFrac = V2_FEE_PPM / 1_000_000
-      const feeApr  = tvl > 0 && vol24h > 0 ? Math.min((vol24h * feeFrac * 365 / tvl) * 100, 2000) : 0
-      const id = `pancake-v2-${token0.toLowerCase()}-${token1.toLowerCase()}`
-
-      results.push({
-        id, protocol: 'PancakeSwap', type: 'lp',
-        tvl, volume_24h: vol24h,
-        token0, token1,
-        fee_tier:   V2_FEE_PPM / 100,  // 2500 ppm → 25 bps
-        fee_apr: feeApr, reward_apr: 0, total_apr: feeApr,
-        in_range: true, il_risk: ilRisk(token0, token1),
-        risk_score: lpRisk({ protocol: 'PancakeSwap', token0, token1, tvl, vol24h }),
-        updated_at: now,
-      })
-      console.log(`[PancakeSwap V2] ${id}: TVL=$${tvl.toFixed(0)}, vol=$${vol24h.toFixed(0)}, APR=${feeApr.toFixed(2)}%`)
-    }
-  } catch (e) {
-    console.error('[PancakeSwap V2] Failed, skipping V2 pools:', e)
-  }
-
-  console.log(`[PancakeSwap] Returning ${results.length} pools`)
-  return results
+  console.log(`[PancakeSwap] Returning ${filtered.length} pools (filtered from ${results.length}, min TVL $${MIN_TVL})`)
+  return filtered
 }
