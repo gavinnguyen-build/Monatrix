@@ -11,7 +11,7 @@ jobs:
     steps:
       - name: Call cron endpoint
         run: |
-          response=$(curl -s -o /tmp/cron_response.json -w "%{http_code}" \
+          response=$(curl -s -L -o /tmp/cron_response.json -w "%{http_code}" \
             -X GET "${{ secrets.APP_URL }}/api/cron" \
             -H "x-cron-secret: ${{ secrets.CRON_SECRET }}")
 
