@@ -70,7 +70,25 @@ const TOKEN_LOGOS: Record<string, string> = {
   wsrUSD:   '/logos/tokens/wsrusd.svg',
   YZM:      '/logos/tokens/yzm.svg',
   eBTC:     '/logos/tokens/ebtc.svg',
+  EBTC:     '/logos/tokens/ebtc.svg',
   savUSD:   '/logos/tokens/savusd.svg',
+  ANAGO:    '/logos/tokens/Anago.png',
+  Anago:    '/logos/tokens/Anago.png',
+  APE:      '/logos/tokens/APE.png',
+  BOB:      '/logos/tokens/BOB.jpg',
+  CHOG:     '/logos/tokens/CHOG.png',
+  DAK:      '/logos/tokens/DAK.png',
+  EARN:     '/logos/tokens/EARN.png',
+  EURW:     '/logos/tokens/EURW.png',
+  GMONAD:   '/logos/tokens/GMONAD.avif',
+  gMONAD:   '/logos/tokens/GMONAD.avif',
+  IGN:      '/logos/tokens/IGN.jpg',
+  MONIKA:   '/logos/tokens/MONIKA.png',
+  NAD:      '/logos/tokens/NAD.jpg',
+  NADS:     '/logos/tokens/NAD.jpg',
+  wnSHMON:  '/logos/tokens/wnSHMON.png',
+  wnUSDC:   '/logos/tokens/wnUSDC.png',
+  wnWMON:   '/logos/tokens/wnWMON.png',
 }
 
 // Receipt token for each LST protocol (shown instead of deposited MON)
@@ -80,7 +98,7 @@ const LST_RECEIPT: Record<string, string> = {
 
 function TokenLogo({ symbol, className }: { symbol: string; className?: string }) {
   const [err, setErr] = useState(false)
-  const src = TOKEN_LOGOS[symbol]
+  const src = TOKEN_LOGOS[symbol] ?? TOKEN_LOGOS[symbol.toUpperCase()] ?? TOKEN_LOGOS[symbol.toLowerCase()]
   const cls = className ?? 'w-8 h-8'
   if (src && !err) {
     return (
