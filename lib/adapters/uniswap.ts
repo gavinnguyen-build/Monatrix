@@ -1,6 +1,7 @@
 import type { LPPool } from '@/types'
 import { lpRisk } from '@/lib/risk'
 import { createPublicClient, http, defineChain } from 'viem'
+import { supabaseAdmin } from '@/lib/supabase'
 
 const GECKO_MULTI = 'https://api.geckoterminal.com/api/v2/networks/monad/pools/multi'
 
@@ -53,7 +54,7 @@ const TARGET_POOLS: TargetPool[] = [
   { id: 'uniswap-v4-ausd-xaut0-2',  address: '0xbb790bd65e290ec6704d731e43fbbbcfa0521c67c608db989767cf22a59a9a92', token0: 'AUSD',     token1: 'XAUt0',    feeTier: 0.0005,   version: 'v4' },
   // New V4 pools (verified May 2026)
   { id: 'uniswap-v4-ausd-usdc-3',   address: '0x6ac413c4d1081e33bdb9aaaef393f45f762f689fd290d8c8f04416118a99ec8f', token0: 'AUSD',     token1: 'USDC',     feeTier: 0.000001, version: 'v4' },
-  { id: 'uniswap-v4-ebtc-wbtc',     address: '0xd0507e42a65643f28cb88ec02e90199128a0dc490665f8c199e938ce706f7f7b', token0: 'EBTC',     token1: 'WBTC',     feeTier: 0.0001,   version: 'v4' },
+  { id: 'uniswap-v4-wbtc-ebtc',     address: '0xd0507e42a65643f28cb88ec02e90199128a0dc490665f8c199e938ce706f7f7b', token0: 'WBTC',     token1: 'EBTC',     feeTier: 0.0001,   version: 'v4' },
   { id: 'uniswap-v4-mon-chog',      address: '0xcfd2d35fee02342ed362279b83debe5691b288c0016f4993b944f8161300f60c', token0: 'MON',      token1: 'CHOG',     feeTier: 0.01,     version: 'v4' },
   { id: 'uniswap-v4-mon-wsteth',    address: '0xbfd64af1b32c101eeff4f7d51a0f1f522c6a6cdf4de45ae340a58c3d1309032c', token0: 'MON',      token1: 'wstETH',   feeTier: 0.0005,   version: 'v4' },
   { id: 'uniswap-v4-mon-usdc-2',    address: '0x7af64e1011a71a23f02b48a5f0c0125669ec0ee06feb538b4424e65d376697b4', token0: 'MON',      token1: 'USDC',     feeTier: 0.0005,   version: 'v4' },
@@ -69,9 +70,9 @@ const TARGET_POOLS: TargetPool[] = [
   { id: 'uniswap-v4-mon-usdc-5',    address: '0x58249cb3e44c955d48c6176b1dd5888b7300f0d0b2d1ae934ca8063d16968f9b', token0: 'MON',      token1: 'USDC',     feeTier: 0.03,     version: 'v4' },
   { id: 'uniswap-v4-mon-aprmon',    address: '0x8d8bea4b3489edaa56c081dbf4cc9f0cf6d80eeb29cc4df6ad956b0dc1d245e2', token0: 'MON',      token1: 'aprMON',   feeTier: 0.0005,   version: 'v4' },
   { id: 'uniswap-v4-mon-shramp-2',  address: '0x280186b3cd518edfa9098d31e9de114d0b0aa721f33a3348817a34c4b74bef33', token0: 'MON',      token1: 'shramp',   feeTier: 0.035,    version: 'v4' },
-  { id: 'uniswap-v4-gmonad-mon',    address: '0xfb2e06638df93ad3080109c410714b0903213135ff6f5909b3a846764df0b801', token0: 'GMONAD',   token1: 'MON',      feeTier: 0.01,     version: 'v4' },
+  { id: 'uniswap-v4-mon-gmonad',    address: '0xfb2e06638df93ad3080109c410714b0903213135ff6f5909b3a846764df0b801', token0: 'MON',      token1: 'GMONAD',   feeTier: 0.01,     version: 'v4' },
   { id: 'uniswap-v4-mon-chog-2',    address: '0x43b7bf8c719f465f9b38286df5f56b334222871f45ccf6e9073e39e3e8df10a7', token0: 'MON',      token1: 'CHOG',     feeTier: 0.05,     version: 'v4' },
-  { id: 'uniswap-v4-lvmon-mon',     address: '0xaacb7e969638eefea2a1bb2710adab08091fb1f05f31f110b5c4aea54c6a0673', token0: 'LVMON',    token1: 'MON',      feeTier: 0.003,    version: 'v4' },
+  { id: 'uniswap-v4-mon-lvmon',     address: '0xaacb7e969638eefea2a1bb2710adab08091fb1f05f31f110b5c4aea54c6a0673', token0: 'MON',      token1: 'LVMON',    feeTier: 0.003,    version: 'v4' },
   { id: 'uniswap-v4-mon-nads',      address: '0x076ad9356442987b2b88d0f1e902f658f01e7e5f9e8c73e17b0b52a869b4e644', token0: 'MON',      token1: 'NADS',     feeTier: 0.09,     version: 'v4' },
   { id: 'uniswap-v4-shmon-usdc',    address: '0xdc0ce2f0103b4355697abd804bc4df189874580afe10819adc8322c0c03a5fed', token0: 'shMON',    token1: 'USDC',     feeTier: 0.003,    version: 'v4' },
   // ── V3 ──────────────────────────────────────────────────────────────────────
@@ -168,7 +169,32 @@ const STATE_VIEW_ABI = [
       { name: 'feeGrowthOutside1X128', type: 'uint256' },
     ],
   },
+  {
+    name: 'getLiquidity', type: 'function', stateMutability: 'view',
+    inputs: [{ name: 'poolId', type: 'bytes32' }],
+    outputs: [{ name: '', type: 'uint128' }],
+  },
+  {
+    name: 'getFeeGrowthGlobals', type: 'function', stateMutability: 'view',
+    inputs: [{ name: 'poolId', type: 'bytes32' }],
+    outputs: [
+      { name: 'feeGrowthGlobal0X128', type: 'uint256' },
+      { name: 'feeGrowthGlobal1X128', type: 'uint256' },
+    ],
+  },
 ] as const
+
+// Token decimals for on-chain fee USD computation
+const TOKEN_DECIMALS: Record<string, number> = {
+  MON: 18, WMON: 18, WETH: 18, WBTC: 8, USDC: 6, AUSD: 6, USDT0: 6,
+  USD1: 6, XAUT0: 6, CBBTC: 8, WEETH: 18, WSTETH: 18, SHMON: 18,
+  GMON: 18, SMON: 18, APRMON: 18, EARNAUSD: 18, LVMON: 18, GMONAD: 18,
+  CHOG: 18, NADS: 18, SHRAMP: 18, EMO: 18, EBTC: 18, ALLOCA: 18,
+  DUST: 18, EURW: 18, EARN: 18,
+}
+function getDecimals(sym: string): number {
+  return TOKEN_DECIMALS[sym.toUpperCase().replace(/[^A-Z0-9]/g, '')] ?? 18
+}
 
 const Q96 = 2n ** 96n
 
@@ -351,14 +377,132 @@ export async function fetchUniswapPools(): Promise<LPPool[]> {
   })
   console.log(`[Uniswap] Got ${allPools.length} pools from GeckoTerminal`)
 
-  // 2. On-chain TVL for native MON V4 pools (GeckoTerminal overstates 2-10×)
+  // 2. On-chain computations: TVL for MON V4 pools + feeGrowthGlobal APR for all V4 pools
   const onchainTVL: Record<string, number> = {}
+  const v4AprFeeUsd: Record<string, number> = {}  // annualized fee USD keyed by pool id
   try {
     const rpcUrl = process.env.MONAD_RPC_URL ?? 'https://rpc.monad.xyz'
     const client = createPublicClient({ chain: monadChain, transport: http(rpcUrl) })
 
     const prices = await fetchOnChainPrices(client)
     console.log(`[Uniswap] On-chain prices: MON=$${prices.mon.toFixed(4)}, WBTC=$${prices.wbtc.toFixed(0)}, WETH=$${prices.weth.toFixed(0)}`)
+
+    // ── V4 feeGrowthGlobal APR ────────────────────────────────────────────────
+    const v4Targets = TARGET_POOLS.filter(p => p.version === 'v4')
+
+    // Read previous snapshots from DB (stored by previous cron run)
+    const { data: prevSnapsRaw } = await supabaseAdmin
+      .from('pools')
+      .select('id, fg0, fg1, fg_at')
+      .in('id', v4Targets.map(p => p.id))
+    type SnapRow = { id: string; fg0: string | null; fg1: string | null; fg_at: string | null }
+    const snapMap = new Map<string, { fg0: bigint; fg1: bigint; fg_at: number }>(
+      ((prevSnapsRaw ?? []) as SnapRow[])
+        .filter(s => s.fg0 && s.fg1 && s.fg_at)
+        .map(s => [s.id, {
+          fg0: BigInt(s.fg0!),
+          fg1: BigInt(s.fg1!),
+          fg_at: new Date(s.fg_at!).getTime(),
+        }])
+    )
+    console.log(`[Uniswap] V4 snapshots: ${snapMap.size}/${v4Targets.length} loaded`)
+
+    // Multicall: getSlot0 + getLiquidity + getFeeGrowthGlobals for all V4 pools
+    const [slot0Res, liqRes, fgRes] = await Promise.all([
+      client.multicall({ allowFailure: true, contracts: v4Targets.map(p => ({
+        address: STATE_VIEW as `0x${string}`, abi: STATE_VIEW_ABI,
+        functionName: 'getSlot0' as const, args: [p.address as `0x${string}`] as const,
+      })) }),
+      client.multicall({ allowFailure: true, contracts: v4Targets.map(p => ({
+        address: STATE_VIEW as `0x${string}`, abi: STATE_VIEW_ABI,
+        functionName: 'getLiquidity' as const, args: [p.address as `0x${string}`] as const,
+      })) }),
+      client.multicall({ allowFailure: true, contracts: v4Targets.map(p => ({
+        address: STATE_VIEW as `0x${string}`, abi: STATE_VIEW_ABI,
+        functionName: 'getFeeGrowthGlobals' as const, args: [p.address as `0x${string}`] as const,
+      })) }),
+    ])
+
+    type V4Data = { sqrtP: bigint; liq: bigint; fg0: bigint; fg1: bigint }
+    const v4OnChain = new Map<string, V4Data>()
+    for (let i = 0; i < v4Targets.length; i++) {
+      const s0r = slot0Res[i], lqr = liqRes[i], fgr = fgRes[i]
+      if (s0r.status === 'success' && lqr.status === 'success' && fgr.status === 'success') {
+        const slot0 = s0r.result as readonly [bigint, number, number, number]
+        v4OnChain.set(v4Targets[i].id, {
+          sqrtP: slot0[0],
+          liq:   lqr.result as bigint,
+          fg0:   (fgr.result as readonly [bigint, bigint])[0],
+          fg1:   (fgr.result as readonly [bigint, bigint])[1],
+        })
+      }
+    }
+    console.log(`[Uniswap] V4 on-chain data: ${v4OnChain.size}/${v4Targets.length} pools`)
+
+    // Derive token prices: start with known base prices, extend via sqrtPriceX96
+    const tokenPriceUsd: Record<string, number> = {
+      MON: prices.mon, WMON: prices.mon,
+      USDC: 1, AUSD: 1, USDT0: 1, USD1: 1,
+      WBTC: prices.wbtc, CBBTC: prices.wbtc,
+      WETH: prices.weth,
+    }
+    // 3 passes to resolve chains (e.g. WBTC→EBTC, WETH→weETH→something)
+    for (let pass = 0; pass < 3; pass++) {
+      for (const pool of v4Targets) {
+        const d = v4OnChain.get(pool.id)
+        if (!d || d.sqrtP === 0n) continue
+        const t0 = pool.token0.toUpperCase().replace(/[^A-Z0-9]/g, '')
+        const t1 = pool.token1.toUpperCase().replace(/[^A-Z0-9]/g, '')
+        const p0 = tokenPriceUsd[t0], p1 = tokenPriceUsd[t1]
+        if (p0 !== undefined && p1 !== undefined) continue  // both already known
+        const dec0 = getDecimals(pool.token0), dec1 = getDecimals(pool.token1)
+        // priceHuman = token1/token0 in human-readable units
+        const sqrtNum = Number(d.sqrtP) / 2 ** 96
+        const ph = sqrtNum * sqrtNum * Math.pow(10, dec0 - dec1)
+        if (!isFinite(ph) || ph <= 0) continue
+        if (p0 !== undefined) tokenPriceUsd[t1] = p0 / ph  // p0 known → derive p1
+        else if (p1 !== undefined) tokenPriceUsd[t0] = p1 * ph  // p1 known → derive p0
+      }
+    }
+
+    // Compute on-chain APR from feeGrowthGlobal delta
+    const TWO128 = 2n ** 128n
+    const SECS_PER_YEAR = 365.25 * 24 * 3600
+    const nowMs = Date.now()
+    const newSnaps: Array<{ id: string; fg0: string; fg1: string; liq: string; fg_at: string }> = []
+
+    for (const pool of v4Targets) {
+      const d = v4OnChain.get(pool.id)
+      if (!d) continue
+      // Record new snapshot for DB write (used in next cron run)
+      newSnaps.push({ id: pool.id, fg0: d.fg0.toString(), fg1: d.fg1.toString(), liq: d.liq.toString(), fg_at: new Date(nowMs).toISOString() })
+
+      const snap = snapMap.get(pool.id)
+      if (!snap) continue                               // no previous snapshot yet
+      const elapsedMs = nowMs - snap.fg_at
+      if (elapsedMs < 5 * 60_000) continue             // < 5 min — too fresh, skip
+      if (d.liq === 0n) continue                       // no in-range liquidity
+
+      // delta is always ≥ 0 (feeGrowth only increases; 0 if counter reset)
+      const delta0 = d.fg0 >= snap.fg0 ? d.fg0 - snap.fg0 : 0n
+      const delta1 = d.fg1 >= snap.fg1 ? d.fg1 - snap.fg1 : 0n
+      if (delta0 === 0n && delta1 === 0n) continue
+
+      const t0 = pool.token0.toUpperCase().replace(/[^A-Z0-9]/g, '')
+      const t1 = pool.token1.toUpperCase().replace(/[^A-Z0-9]/g, '')
+      const dec0 = getDecimals(pool.token0), dec1 = getDecimals(pool.token1)
+      // fee_amount_raw = delta_fg × liquidity / 2^128
+      const fee0Usd = Number(delta0 * d.liq / TWO128) / 10 ** dec0 * (tokenPriceUsd[t0] ?? 0)
+      const fee1Usd = Number(delta1 * d.liq / TWO128) / 10 ** dec1 * (tokenPriceUsd[t1] ?? 0)
+      if (!isFinite(fee0Usd) || !isFinite(fee1Usd)) continue
+
+      const annualFee = (fee0Usd + fee1Usd) * (SECS_PER_YEAR / (elapsedMs / 1000))
+      if (annualFee > 0) {
+        v4AprFeeUsd[pool.id] = annualFee
+        console.log(`[Uniswap] On-chain APR ${pool.id}: ${Math.round(elapsedMs / 60_000)}min, fee0=$${fee0Usd.toFixed(4)}, fee1=$${fee1Usd.toFixed(4)}, annualFee=$${annualFee.toFixed(2)}`)
+      }
+    }
+    // ── End V4 feeGrowthGlobal APR ────────────────────────────────────────────
 
     // Sequential — tick bitmap scans make many RPC calls; parallel would hit rate limits
     for (const [id, cfg] of Object.entries(ONCHAIN_TVL)) {
@@ -374,8 +518,20 @@ export async function fetchUniswapPools(): Promise<LPPool[]> {
         console.error(`[Uniswap] On-chain TVL failed for ${id}:`, e)
       }
     }
+
+    // Write new V4 snapshots to DB for the next cron run (fire-and-forget)
+    if (newSnaps.length > 0) {
+      await Promise.allSettled(
+        newSnaps.map(s =>
+          supabaseAdmin.from('pools')
+            .update({ fg0: s.fg0, fg1: s.fg1, liq: s.liq, fg_at: s.fg_at } as never)
+            .eq('id', s.id)
+        )
+      )
+      console.log(`[Uniswap] Wrote ${newSnaps.length} V4 snapshots to DB`)
+    }
   } catch (e) {
-    console.error('[Uniswap] On-chain TVL fetch failed, using GeckoTerminal:', e)
+    console.error('[Uniswap] On-chain fetch failed, using GeckoTerminal:', e)
   }
 
   // 3. Build results
@@ -394,7 +550,11 @@ export async function fetchUniswapPools(): Promise<LPPool[]> {
     const tvl      = target.id in onchainTVL ? (onchainTVL[target.id] ?? geckoTVL) : geckoTVL
 
     let feeApr = 0
-    if (tvl > 0 && vol24h > 0) {
+    if (target.version === 'v4' && target.id in v4AprFeeUsd && tvl > 0) {
+      // On-chain feeGrowthGlobal delta — more accurate than GeckoTerminal volume
+      const raw = v4AprFeeUsd[target.id] / tvl * 100
+      feeApr = raw > 0 && raw < 10000 ? raw : 0
+    } else if (tvl > 0 && vol24h > 0) {
       const raw = (vol24h * target.feeTier * 365 / tvl) * 100
       feeApr = raw > 2000 ? 0 : raw
     }
