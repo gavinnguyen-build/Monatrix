@@ -45,17 +45,23 @@ const TOKEN_LOGOS: Record<string, string> = {
   WETH:     '/logos/tokens/WETH.png',
   WBTC:     '/logos/tokens/WBTC.png',
   cbBTC:    '/logos/tokens/cbBTC.png',
+  CBBTC:    '/logos/tokens/cbBTC.png',
   XAUt0:    '/logos/tokens/XAUT0.png',
   DUST:     '/logos/tokens/DUST.jpg',
   ALLOCA:   '/logos/tokens/ALLOCA.jpg',
   shMON:    '/logos/tokens/shMON.png',
+  SHMON:    '/logos/tokens/shMON.png',
   gMON:     '/logos/tokens/gMON.png',
+  GMON:     '/logos/tokens/gMON.png',
   sMON:     '/logos/tokens/sMON.webp',
   aprMON:   '/logos/tokens/aprMON.png',
   APR:      '/logos/tokens/APR.png',
   weETH:    '/logos/tokens/weETH.png',
+  WEETH:    '/logos/tokens/weETH.png',
   wstETH:   '/logos/tokens/wsETH.jpg',
+  WSTETH:   '/logos/tokens/wsETH.jpg',
   earnAUSD: '/logos/tokens/earnAUSD.png',
+  EARNAUSD: '/logos/tokens/earnAUSD.png',
   loAZND:   '/logos/tokens/loAZND.webp',
   CAKE:     '/logos/tokens/CAKE.jpg',
   Cake:     '/logos/tokens/CAKE.jpg',
@@ -749,6 +755,7 @@ interface Props { pools: Pool[] }
 
 export function PoolTable({ pools }: Props) {
   const sp = useSearchParams()
+  const router = useRouter()
   const initTab = sp.get('tab')
   const [tab, setTab]                 = useState<TabType>(
     initTab === 'lending' || initTab === 'lst' ? initTab : 'lp'
@@ -758,6 +765,15 @@ export function PoolTable({ pools }: Props) {
   const [protocolFilter, setProtocol] = useState(sp.get('protocol') ?? 'all')
   const [search, setSearch]           = useState('')
   const [showBytes, setShowBytes]     = useState(true)
+
+  // Sync tab + protocol to URL so back navigation restores state
+  useEffect(() => {
+    const params = new URLSearchParams()
+    if (tab !== 'lp') params.set('tab', tab)
+    if (protocolFilter !== 'all') params.set('protocol', protocolFilter)
+    const qs = params.toString()
+    router.replace(qs ? `/?${qs}` : '/', { scroll: false })
+  }, [tab, protocolFilter])
 
   function toggleSort(k: SortKey) {
     if (sortKey === k) setSortDir(d => d === 'desc' ? 'asc' : 'desc')

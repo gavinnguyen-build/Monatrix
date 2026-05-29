@@ -30,7 +30,7 @@ export default function PoolDetailPage() {
       <div className="max-w-5xl mx-auto px-4 py-6">
         <button
           type="button"
-          onClick={() => router.push('/')}
+          onClick={() => router.back()}
           className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-300 transition-colors mb-6"
         >
           ← Pools
@@ -42,7 +42,7 @@ export default function PoolDetailPage() {
             <p className="text-slate-400 text-sm">Pool not found.</p>
             <button
               type="button"
-              onClick={() => router.push('/')}
+              onClick={() => router.back()}
               className="mt-4 text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors"
             >
               Back to pools

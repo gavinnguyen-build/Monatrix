@@ -1,98 +1,53 @@
 import type { LPPool } from '@/types'
 import { lpRisk } from '@/lib/risk'
-import { createPublicClient, http, defineChain } from 'viem'
-
-// ─── Chain ────────────────────────────────────────────────────────────────────
-const monadChain = defineChain({
-  id: 143,
-  name: 'Monad',
-  nativeCurrency: { name: 'MON', symbol: 'MON', decimals: 18 },
-  rpcUrls: { default: { http: ['https://rpc.monad.xyz'] } },
-  contracts: { multicall3: { address: '0xcA11bde05977b3631167028862bE2a173976CA11' } },
-})
 
 // ─── Constants ────────────────────────────────────────────────────────────────
-const GECKO_DEX   = 'https://api.geckoterminal.com/api/v2/networks/monad/dexes/pancakeswap-v3-monad/pools'
-const GOLDSKY_URL = 'https://api.goldsky.com/api/public/project_cmneec191ntkn01uu7iznhwan/subgraphs/pancake-monad/v1/gn'
-const MAX_PAGES = 10
-const MIN_TVL   = 1000
 
 const STABLES = new Set(['USDC', 'USDT', 'USDT0', 'AUSD', 'USD1', 'DAI', 'USDS'])
+const MIN_TVL_USD = 10_000
+const APR_CAP = 1000
 
-// ─── PATH 1 FIXES ─────────────────────────────────────────────────────────────
-// Fix #1: TVL — bỏ balanceOf (gây inflated 5-30% do gồm unclaimed fees + dust).
-//         Dùng thẳng reserve_in_usd của GeckoTerminal (đã trừ unclaimed fees).
-//         → KHÔNG cần phase 3 balanceOf calls → giảm ~50% RPC.
-//
-// Fix #2: Protocol fee — Pancake V3 lấy 10-32% LP fee. Trừ ra khi tính APR.
-//         feeProtocol nibble: x=0 nghĩa 0%, x>=4 nghĩa 1/x đi vào protocol.
-//
-// Fix #3: Volume/TVL sanity filter — vol/tvl > 1000 nghĩa pool data noisy
-//         (vol thật cao hơn nhiều so với active liquidity). Skip APR cho pool này.
-//
-// Fix #4: Cap APR ở 200% thay vì 2000% — outlier filter chặt hơn.
+const POOL_LIST_BASE = 'https://explorer.pancakeswap.com/api/cached/pools/list'
+const POOL_LIST_PARAMS =
+  'orderBy=tvlUSD&protocols=v2&protocols=v3&protocols=stable' +
+  '&protocols=infinityBin&protocols=infinityCl&chains=monad&limit=100'
+const MERKL_URL =
+  'https://api.merkl.xyz/v4/opportunities/' +
+  '?chainId=143&test=false&mainProtocolId=pancake-swap&action=POOL,HOLD&status=LIVE&items=100'
 
-const VOL_TVL_RATIO_MAX = 1000  // pools beyond this are noisy, APR unreliable
-const APR_CAP = 200             // hard cap, anything above = data issue
-
-// Pools manually blocked (fake TVL, test tokens, or unwanted duplicates)
-const BLOCKED_IDS = new Set([
-  'pancake-kpl-kpl-2500',
-  'pancake-kpl-kpl-10000',
-  'pancake-wmon-kpl-2500',
-  'pancake-wmon-kpl-10000',
-  'pancake-wmon-james_test-2500',
-  'pancake-wmon-ape-2500',
-  'pancake-wmon-chog-2500',
-  'pancake-wmon-gmonad-2500',
-])
-
-// ─── ABIs ─────────────────────────────────────────────────────────────────────
-const POOL_ABI = [
-  { name: 'fee',    type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'uint24' }] },
-  { name: 'token0', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
-  { name: 'token1', type: 'function', stateMutability: 'view', inputs: [], outputs: [{ type: 'address' }] },
-  // Read slot0 to extract feeProtocol nibble for Fix #2
-  { name: 'slot0', type: 'function', stateMutability: 'view', inputs: [], outputs: [
-    { name: 'sqrtPriceX96', type: 'uint160' },
-    { name: 'tick',         type: 'int24'   },
-    { name: 'observationIndex',       type: 'uint16' },
-    { name: 'observationCardinality', type: 'uint16' },
-    { name: 'observationCardinalityNext', type: 'uint16' },
-    { name: 'feeProtocol', type: 'uint8' },
-    { name: 'unlocked',    type: 'bool'  },
-  ] },
-] as const
-
-const ERC20_ABI = [
-  { name: 'decimals', type: 'function', stateMutability: 'view',
-    inputs: [], outputs: [{ type: 'uint8' }] },
-  { name: 'symbol',   type: 'function', stateMutability: 'view',
-    inputs: [], outputs: [{ type: 'string' }] },
-] as const
-
-// ─── Types ────────────────────────────────────────────────────────────────────
-interface GeckoPool {
-  attributes: {
-    address: string
-    name: string
-    base_token_price_usd: string
-    quote_token_price_usd: string
-    reserve_in_usd: string
-    volume_usd: { h24: string }
-  }
-  relationships: {
-    base_token:  { data: { id: string } }
-    quote_token: { data: { id: string } }
-  }
+const HEADERS = {
+  'accept':  '*/*',
+  'origin':  'https://pancakeswap.finance',
+  'referer': 'https://pancakeswap.finance/',
 }
 
-interface TokenInfo {
-  symbol:   string
+// ─── Types ────────────────────────────────────────────────────────────────────
+
+interface PancakeToken {
+  id: string
+  symbol: string
   decimals: number
 }
 
+interface PancakeRow {
+  id: string          // pool address
+  tvlUSD: string
+  volumeUSD24h: string
+  apr24h: string      // decimal (0.815 = 81.5%)
+  feeTier: number
+  protocol: string    // 'v2'|'v3'|'stable'|'infinityBin'|'infinityCl'
+  token0: PancakeToken
+  token1: PancakeToken
+}
+
+interface PoolListResponse {
+  hasNextPage: boolean
+  endCursor: string
+  rows: PancakeRow[]
+}
+
 // ─── Helpers ──────────────────────────────────────────────────────────────────
+
 function ilRisk(t0: string, t1: string): 'low' | 'medium' | 'high' {
   const s0 = STABLES.has(t0.toUpperCase())
   const s1 = STABLES.has(t1.toUpperCase())
@@ -101,287 +56,116 @@ function ilRisk(t0: string, t1: string): 'low' | 'medium' | 'high' {
   return 'high'
 }
 
-function geckoaddrToAddr(id: string): string {
-  return id.replace(/^[^_]+_/, '').toLowerCase()
+// ─── API: Pool list (paginated) ───────────────────────────────────────────────
+
+async function fetchAllRows(): Promise<{ rows: PancakeRow[]; pages: number }> {
+  const rows: PancakeRow[] = []
+  let cursor: string | null = null
+  let pages = 0
+
+  while (true) {
+    const url = cursor
+      ? `${POOL_LIST_BASE}?${POOL_LIST_PARAMS}&after=${encodeURIComponent(cursor)}`
+      : `${POOL_LIST_BASE}?${POOL_LIST_PARAMS}`
+
+    const res = await fetch(url, { headers: HEADERS, next: { revalidate: 0 } })
+    if (!res.ok) throw new Error(`[PancakeSwap] Pool list HTTP ${res.status}`)
+
+    const json: PoolListResponse = await res.json()
+    rows.push(...json.rows)
+    pages++
+
+    if (!json.hasNextPage) break
+    cursor = json.endCursor
+  }
+
+  return { rows, pages }
 }
 
-/**
- * Apply protocol fee deduction to gross fee APR.
- *
- * Pancake V3 feeProtocol is packed as 4-bit nibbles:
- *   low nibble (bits 0-3) = protocolFee0 nibble
- *   high nibble (bits 4-7) = protocolFee1 nibble
- *
- * Each nibble x means "1/x of LP fee → protocol":
- *   - x=0 → no protocol fee, LP gets 100%
- *   - x=4 → protocol takes 1/4 = 25%, LP gets 75%
- *   - x=10 → protocol takes 1/10 = 10%, LP gets 90%
- *
- * We average the two nibbles (token0 and token1 protocol fees can differ).
- */
-function lpFeeShare(feeProtocolPacked: number): number {
-  const nib0 = feeProtocolPacked & 0x0f
-  const nib1 = (feeProtocolPacked >> 4) & 0x0f
-  const share0 = nib0 === 0 ? 1 : (nib0 - 1) / nib0
-  const share1 = nib1 === 0 ? 1 : (nib1 - 1) / nib1
-  return (share0 + share1) / 2
-}
+// ─── API: Merkl reward APRs ───────────────────────────────────────────────────
 
-// ─── Goldsky subgraph: fetch 24h fee data ─────────────────────────────────────
-// feesToken0/feesToken1 in subgraph = raw token units (BigDecimal from BigInt).
-// Both sides of each swap are summed → divide by 2 to get actual LP fees.
-// We fetch today + yesterday and pick the day with more txCount per pool.
-
-interface SubgraphDayData {
-  feesToken0:    number  // already divided by 10^decimals
-  feesToken1:    number
-  txCount:       number
-}
-
-async function fetchSubgraphFees(): Promise<Map<string, SubgraphDayData>> {
-  const todayStart = Math.floor(Date.now() / 1000 / 86400) * 86400
-  const yestStart  = todayStart - 86400
-
-  const query = `{
-    today: poolDayDatas(first: 1000, where: { date: ${todayStart} }) {
-      pool { id token0Decimals token1Decimals }
-      feesToken0 feesToken1 txCount
-    }
-    yesterday: poolDayDatas(first: 1000, where: { date: ${yestStart} }) {
-      pool { id token0Decimals token1Decimals }
-      feesToken0 feesToken1 txCount
-    }
-  }`
-
+async function fetchMerkl(): Promise<Map<string, number>> {
   try {
-    const res = await fetch(GOLDSKY_URL, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ query }),
-      next: { revalidate: 0 },
-    })
-    if (!res.ok) throw new Error(`HTTP ${res.status}`)
-    const json = await res.json()
-    if (json.errors) throw new Error(JSON.stringify(json.errors))
-
-    type RawDay = {
-      pool: { id: string; token0Decimals: number; token1Decimals: number }
-      feesToken0: string; feesToken1: string; txCount: string
+    const res = await fetch(MERKL_URL, { headers: HEADERS, next: { revalidate: 0 } })
+    if (!res.ok) {
+      console.warn(`[PancakeSwap] Merkl HTTP ${res.status} — reward_apr = 0 for all pools`)
+      return new Map()
     }
-
-    const map = new Map<string, SubgraphDayData>()
-    const merge = (days: RawDay[]) => {
-      for (const d of days) {
-        const addr = d.pool.id.toLowerCase()
-        const dec0 = Number(d.pool.token0Decimals)
-        const dec1 = Number(d.pool.token1Decimals)
-        const incoming: SubgraphDayData = {
-          feesToken0: parseFloat(d.feesToken0) / Math.pow(10, dec0),
-          feesToken1: parseFloat(d.feesToken1) / Math.pow(10, dec1),
-          txCount:    Number(d.txCount),
-        }
-        const existing = map.get(addr)
-        if (!existing || incoming.txCount > existing.txCount) map.set(addr, incoming)
-      }
-    }
-    merge(json.data?.yesterday ?? [])
-    merge(json.data?.today ?? [])  // today wins if it has more txns
-
-    console.log(`[PancakeSwap] Goldsky: ${map.size} pools with fee data`)
+    const list = await res.json() as Array<{ identifier: string; apr: number }>
+    const map = new Map<string, number>()
+    for (const o of list) map.set(o.identifier.toLowerCase(), o.apr)
     return map
   } catch (err) {
-    console.warn('[PancakeSwap] Goldsky subgraph failed, falling back to GeckoTerminal volume:', err)
+    console.warn('[PancakeSwap] Merkl fetch failed — reward_apr = 0 for all pools:', err)
     return new Map()
   }
 }
 
-// ─── GeckoTerminal: fetch all pages ───────────────────────────────────────────
-async function fetchGeckoPages(): Promise<{ pools: GeckoPool[]; tokenMap: Map<string, TokenInfo> }> {
-  const pools: GeckoPool[] = []
-  const tokenMap = new Map<string, TokenInfo>()
-
-  for (let page = 1; page <= MAX_PAGES; page++) {
-    let res: Response | null = null
-    for (let attempt = 0; attempt < 3; attempt++) {
-      res = await fetch(`${GECKO_DEX}?page=${page}`, {
-        headers: { Accept: 'application/json' },
-        next: { revalidate: 0 },
-      })
-      if (res.status === 429) {
-        const retryAfter = parseInt(res.headers.get('Retry-After') ?? '0', 10)
-        const wait = Math.max(65, retryAfter) * 1000
-        console.warn(`[PancakeSwap] GeckoTerminal 429 page ${page} — waiting ${wait / 1000}s (attempt ${attempt + 1})`)
-        await new Promise(r => setTimeout(r, wait))
-        continue
-      }
-      break
-    }
-    if (!res || !res.ok) {
-      if (page === 1) throw new Error(`[PancakeSwap] GeckoTerminal HTTP ${res?.status ?? 'unknown'}`)
-      break
-    }
-    const json = await res.json()
-    const batch = (json.data ?? []) as GeckoPool[]
-    if (batch.length === 0) break
-
-    pools.push(...batch)
-
-    // Token info from "included" (we only need symbol + decimals now, no price)
-    for (const inc of (json.included ?? []) as { id: string; type: string; attributes: { address?: string; symbol?: string; decimals?: number } }[]) {
-      if (inc.type === 'token' && inc.attributes?.address) {
-        const addr = inc.attributes.address.toLowerCase()
-        if (!tokenMap.has(addr)) {
-          tokenMap.set(addr, {
-            symbol:   inc.attributes.symbol   ?? 'UNKNOWN',
-            decimals: inc.attributes.decimals ?? 18,
-          })
-        }
-      }
-    }
-
-    if (batch.length < 20) break
-    await new Promise(r => setTimeout(r, 3000))
-  }
-
-  return { pools, tokenMap }
-}
-
 // ─── Main ─────────────────────────────────────────────────────────────────────
+
 export async function fetchPancakeSwapPools(): Promise<LPPool[]> {
-  console.log('[PancakeSwap] Discovering all pools via GeckoTerminal...')
+  console.log('[PancakeSwap] Fetching from PancakeSwap Explorer + Merkl...')
 
-  const [{ pools: geckoPools, tokenMap }, subgraphMap] = await Promise.all([
-    fetchGeckoPages(),
-    fetchSubgraphFees(),
-  ])
-  console.log(`[PancakeSwap] Discovered ${geckoPools.length} pools`)
-  if (geckoPools.length === 0) throw new Error('[PancakeSwap] No pools returned from GeckoTerminal')
-
-  const rpcUrl = process.env.MONAD_RPC_URL ?? 'https://rpc.monad.xyz'
-  const client = createPublicClient({ chain: monadChain, transport: http(rpcUrl) })
-
-  const poolAddrs = geckoPools.map(p => p.attributes.address.toLowerCase() as `0x${string}`)
-
-  // ── Phase 1: fee + token0 + token1 + slot0 (for protocol fee nibble) ──────
-  // NOTE: Phase 3 balanceOf calls REMOVED (Fix #1)
-  const [feeRes, t0Res, t1Res, slotRes] = await Promise.all([
-    client.multicall({ contracts: poolAddrs.map(a => ({ address: a, abi: POOL_ABI, functionName: 'fee'    as const })), allowFailure: true }),
-    client.multicall({ contracts: poolAddrs.map(a => ({ address: a, abi: POOL_ABI, functionName: 'token0' as const })), allowFailure: true }),
-    client.multicall({ contracts: poolAddrs.map(a => ({ address: a, abi: POOL_ABI, functionName: 'token1' as const })), allowFailure: true }),
-    client.multicall({ contracts: poolAddrs.map(a => ({ address: a, abi: POOL_ABI, functionName: 'slot0'  as const })), allowFailure: true }),
+  const [{ rows: allRows, pages }, merklMap] = await Promise.all([
+    fetchAllRows(),
+    fetchMerkl(),
   ])
 
-  // ── Phase 2: Token symbol/decimals for tokens not in GeckoTerminal data ───
-  const unknownAddrs = new Set<string>()
-  for (let i = 0; i < poolAddrs.length; i++) {
-    const t0 = t0Res[i].status === 'success' ? (t0Res[i].result as string).toLowerCase() : null
-    const t1 = t1Res[i].status === 'success' ? (t1Res[i].result as string).toLowerCase() : null
-    if (t0 && !tokenMap.has(t0)) unknownAddrs.add(t0)
-    if (t1 && !tokenMap.has(t1)) unknownAddrs.add(t1)
-  }
-
-  if (unknownAddrs.size > 0) {
-    const addrs = [...unknownAddrs] as `0x${string}`[]
-    const [symRes, decRes] = await Promise.all([
-      client.multicall({ contracts: addrs.map(a => ({ address: a, abi: ERC20_ABI, functionName: 'symbol'   as const })), allowFailure: true }),
-      client.multicall({ contracts: addrs.map(a => ({ address: a, abi: ERC20_ABI, functionName: 'decimals' as const })), allowFailure: true }),
-    ])
-    addrs.forEach((addr, i) => {
-      tokenMap.set(addr, {
-        symbol:   symRes[i].status === 'success' ? (symRes[i].result as string) : 'UNKNOWN',
-        decimals: decRes[i].status === 'success' ? Number(decRes[i].result)     : 18,
-      })
-    })
-  }
-
-  // ── Build result pools ───────────────────────────────────────────────────
-  const results: LPPool[] = []
   const now = new Date().toISOString()
-  let skippedNoise = 0
+  const results: LPPool[] = []
+  let skippedLowTvl = 0
   let skippedCapped = 0
 
-  for (let i = 0; i < geckoPools.length; i++) {
-    const gp = geckoPools[i]
-    const feeTierRaw = feeRes[i].status === 'success' ? Number(feeRes[i].result) : null
-    const t0Addr     = t0Res[i].status === 'success'  ? (t0Res[i].result as string).toLowerCase() : null
-    const t1Addr     = t1Res[i].status === 'success'  ? (t1Res[i].result as string).toLowerCase() : null
+  for (const row of allRows) {
+    const tvl = parseFloat(row.tvlUSD) || 0
+    if (tvl < MIN_TVL_USD) { skippedLowTvl++; continue }
 
-    if (!feeTierRaw || !t0Addr || !t1Addr) continue
+    const vol24h   = parseFloat(row.volumeUSD24h) || 0
+    const feeApr   = Math.min(parseFloat(row.apr24h) * 100, APR_CAP)  // decimal → %
+    const rewardApr = merklMap.get(row.id.toLowerCase()) ?? 0
+    const totalApr  = Math.min(feeApr + rewardApr, APR_CAP)
 
-    const t0Info = tokenMap.get(t0Addr)
-    const t1Info = tokenMap.get(t1Addr)
-    const token0 = t0Info?.symbol ?? 'UNKNOWN'
-    const token1 = t1Info?.symbol ?? 'UNKNOWN'
+    if (feeApr >= APR_CAP) skippedCapped++
 
-    // TVL: GeckoTerminal reserve_in_usd (accurate, excludes unclaimed fees)
-    const tvl    = parseFloat(gp.attributes.reserve_in_usd) || 0
-    const vol24h = parseFloat(gp.attributes.volume_usd?.h24 ?? '0') || 0
+    const t0sym = row.token0.symbol
+    const t1sym = row.token1.symbol
+    const proto = row.protocol.toLowerCase()
 
-    // APR: prefer Goldsky on-chain fees, fall back to GeckoTerminal volume
-    let feeApr = 0
-    const poolAddr = gp.attributes.address.toLowerCase()
-    const subData  = subgraphMap.get(poolAddr)
+    const id = `pancakeswap-${proto}-${t0sym.toLowerCase()}-${t1sym.toLowerCase()}-${row.feeTier}`
+    const feeTierBps = Math.round(row.feeTier / 100)
 
-    if (subData && subData.txCount > 0 && tvl > 0) {
-      // Subgraph counts both sides of every swap → divide by 2 to get actual fees
-      const baseAddr     = geckoaddrToAddr(gp.relationships.base_token.data.id)
-      const isBaseToken0 = baseAddr === t0Addr
-      const price0 = isBaseToken0
-        ? parseFloat(gp.attributes.base_token_price_usd)
-        : parseFloat(gp.attributes.quote_token_price_usd)
-      const price1 = isBaseToken0
-        ? parseFloat(gp.attributes.quote_token_price_usd)
-        : parseFloat(gp.attributes.base_token_price_usd)
-
-      const feeUsd24h = (subData.feesToken0 * price0 + subData.feesToken1 * price1) / 2
-      const raw = (feeUsd24h / tvl) * 365 * 100
-      if (raw > APR_CAP) { skippedCapped++ } else { feeApr = raw }
-    } else if (tvl > 0 && vol24h > 0 && vol24h / tvl <= VOL_TVL_RATIO_MAX) {
-      // Fallback: GeckoTerminal volume + protocol fee deduction
-      const feeTier = feeTierRaw / 1_000_000
-      let lpShare = 1.0
-      if (slotRes[i].status === 'success') {
-        const slot0 = slotRes[i].result as readonly [bigint, number, number, number, number, number, boolean]
-        lpShare = lpFeeShare(slot0[5])
-      }
-      const raw = (vol24h * feeTier * lpShare * 365 / tvl) * 100
-      if (raw > APR_CAP) { skippedCapped++ } else { feeApr = raw }
-    } else if (tvl > 0 && vol24h > 0) {
-      skippedNoise++
-    }
-
-    // Deterministic ID
-    const id = `pancake-${token0.toLowerCase()}-${token1.toLowerCase()}-${feeTierRaw}`
-
-    results.push({
+    const lp: LPPool = {
       id,
       protocol:   'PancakeSwap',
       type:       'lp',
       tvl,
       volume_24h: vol24h,
-      token0,
-      token1,
-      fee_tier:   feeTierRaw / 100,  // bps
+      token0:     t0sym,
+      token1:     t1sym,
+      fee_tier:   feeTierBps,
       fee_apr:    feeApr,
-      reward_apr: 0,
-      total_apr:  feeApr,
+      reward_apr: rewardApr,
+      total_apr:  totalApr,
       in_range:   true,
-      il_risk:    ilRisk(token0, token1),
-      risk_score: lpRisk({ protocol: 'PancakeSwap', token0, token1, tvl, vol24h }),
+      il_risk:    ilRisk(t0sym, t1sym),
+      risk_score: lpRisk({ protocol: 'PancakeSwap', token0: t0sym, token1: t1sym, tvl, vol24h }),
       updated_at: now,
-    })
+    }
 
-    console.log(`[PancakeSwap] ${id}: TVL=$${tvl.toFixed(0)}, vol=$${vol24h.toFixed(0)}, APR=${feeApr.toFixed(2)}%`)
+    console.log(
+      `[PancakeSwap] ${id}: TVL=$${tvl.toFixed(0)},` +
+      ` fee_apr=${feeApr.toFixed(2)}%, reward_apr=${rewardApr.toFixed(2)}%, total=${totalApr.toFixed(2)}%`
+    )
+    results.push(lp)
   }
 
-  // Filter ghost pools + blocked pools
-  const filtered = results.filter(p => p.tvl >= MIN_TVL && !BLOCKED_IDS.has(p.id))
-  if (filtered.length === 0) throw new Error('[PancakeSwap] No pools after processing')
+  if (results.length === 0) throw new Error('[PancakeSwap] No pools after $10K TVL filter')
 
   console.log(
-    `[PancakeSwap] Returning ${filtered.length} pools ` +
-    `(filtered ${results.length - filtered.length} ghost, ` +
-    `skipped ${skippedNoise} noisy, ${skippedCapped} APR-capped)`,
+    `[PancakeSwap] Fetched ${allRows.length} pools (${pages} pages),` +
+    ` ${merklMap.size} Merkl opportunities,` +
+    ` after $10K filter: ${results.length} pools` +
+    ` (skipped: ${skippedLowTvl} low-TVL, ${skippedCapped} APR-capped)`
   )
-  return filtered
+  return results
 }

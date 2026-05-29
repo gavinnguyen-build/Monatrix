@@ -5,12 +5,18 @@ const COINGECKO_URL = 'https://api.coingecko.com/api/v3/simple/price'
 // CoinGecko coin IDs — update if a coin ID changes
 const COIN_IDS: Record<string, string> = {
   MON: 'monad',
-  WMON: 'monad', // same underlying asset as MON
+  WMON: 'monad',       // wrapped MON, same price
   ETH: 'ethereum',
-  WETH: 'ethereum',
+  WETH: 'ethereum',    // wrapped ETH, same price
+  WEETH: 'wrapped-eeth',
+  WSTETH: 'wrapped-steth',
   BTC: 'bitcoin',
   WBTC: 'wrapped-bitcoin',
-  SHMON: 'shmonad', // staked MON — approximate with MON price until listed separately
+  CBBTC: 'coinbase-wrapped-btc',
+  EBTC: 'ebtc',
+  SHMON: 'shmonad',
+  SMON: 'kintsu-staked-mon',
+  GMON: 'magma-gmon',
 }
 
 const STABLES = new Set(['USDC', 'USDT', 'AUSD', 'USD1', 'DAI', 'USDS'])
