@@ -37,3 +37,7 @@ alter table pools add column if not exists status text default 'active';
 -- Add exchange_rate for tracking LST rate over time (used to compute APY for protocols
 -- not listed on DefiLlama, e.g. Apriori aprMON: convertToAssets(1e18) stored here)
 alter table pools add column if not exists exchange_rate numeric;
+
+-- Add contract_address for canonical pool URLs /{category}/{protocol}/{contract_address}
+alter table pools add column if not exists contract_address text;
+create index if not exists pools_contract_address on pools (contract_address);

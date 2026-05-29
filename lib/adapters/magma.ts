@@ -61,16 +61,17 @@ export async function fetchMagmaPools(): Promise<LiquidStakingPool[]> {
   )
 
   const pool: LiquidStakingPool = {
-    id: 'magma-gmon',
-    protocol: 'Magma',
-    type: 'liquid_staking',
+    id:               'magma-gmon',
+    protocol:         'Magma',
+    type:             'liquid_staking',
     tvl,
-    volume_24h: 0,
-    asset: 'MON',
+    volume_24h:       0,
+    asset:            'MON',
     apy,
-    lock_period: null,
-    risk_score: stakingRisk({ protocol: 'Magma', tvl, lockDays: null }),
-    updated_at: new Date().toISOString(),
+    lock_period:      null,
+    risk_score:       stakingRisk({ protocol: 'Magma', tvl, lockDays: null }),
+    updated_at:       new Date().toISOString(),
+    contract_address: GMON,
   }
 
   return [pool]

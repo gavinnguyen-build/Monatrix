@@ -136,20 +136,21 @@ export async function fetchPancakeSwapPools(): Promise<LPPool[]> {
 
     const lp: LPPool = {
       id,
-      protocol:   'PancakeSwap',
-      type:       'lp',
+      protocol:         'PancakeSwap',
+      type:             'lp',
       tvl,
-      volume_24h: vol24h,
-      token0:     t0sym,
-      token1:     t1sym,
-      fee_tier:   feeTierBps,
-      fee_apr:    feeApr,
-      reward_apr: rewardApr,
-      total_apr:  totalApr,
-      in_range:   true,
-      il_risk:    ilRisk(t0sym, t1sym),
-      risk_score: lpRisk({ protocol: 'PancakeSwap', token0: t0sym, token1: t1sym, tvl, vol24h }),
-      updated_at: now,
+      volume_24h:       vol24h,
+      token0:           t0sym,
+      token1:           t1sym,
+      fee_tier:         feeTierBps,
+      fee_apr:          feeApr,
+      reward_apr:       rewardApr,
+      total_apr:        totalApr,
+      in_range:         true,
+      il_risk:          ilRisk(t0sym, t1sym),
+      risk_score:       lpRisk({ protocol: 'PancakeSwap', token0: t0sym, token1: t1sym, tvl, vol24h }),
+      updated_at:       now,
+      contract_address: row.id,  // pool contract address from Explorer API
     }
 
     console.log(

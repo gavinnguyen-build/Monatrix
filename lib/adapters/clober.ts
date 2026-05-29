@@ -142,20 +142,21 @@ export async function fetchCloberPools(): Promise<LPPool[]> {
 
     const pool: LPPool = {
       id,
-      protocol: 'Clober',
-      type: 'lp',
+      protocol:         'Clober',
+      type:             'lp',
       tvl,
-      volume_24h: vol24h,
+      volume_24h:       vol24h,
       token0,
       token1,
-      fee_tier: 10, // 0.1% = 10 bps
-      fee_apr: feeApr,
-      reward_apr: 0,
-      total_apr: feeApr,
-      in_range: true,
-      il_risk: ilRisk(token0, token1),
-      risk_score: lpRisk({ protocol: 'Clober', token0, token1, tvl, vol24h }),
-      updated_at: now,
+      fee_tier:         10, // 0.1% = 10 bps
+      fee_apr:          feeApr,
+      reward_apr:       0,
+      total_apr:        feeApr,
+      in_range:         true,
+      il_risk:          ilRisk(token0, token1),
+      risk_score:       lpRisk({ protocol: 'Clober', token0, token1, tvl, vol24h }),
+      updated_at:       now,
+      contract_address: id,  // CLOB protocol, no pool contract — use slug
     }
 
     const src = llamaPool ? 'DefiLlama' : 'formula'

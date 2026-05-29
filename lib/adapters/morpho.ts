@@ -138,15 +138,16 @@ export async function fetchMorphoPools(): Promise<LendingPool[]> {
 
     const pool: LendingPool = {
       id,
-      protocol: 'Morpho',
-      type: 'lending',
+      protocol:         'Morpho',
+      type:             'lending',
       tvl,
-      volume_24h: 0,
-      asset: vault.asset,
+      volume_24h:       0,
+      asset:            vault.asset,
       apy,
-      utilization: 0,
-      risk_score: lendingRisk({ protocol: 'Morpho', tvl, utilization: 0 }),
-      updated_at: now,
+      utilization:      0,
+      risk_score:       lendingRisk({ protocol: 'Morpho', tvl, utilization: 0 }),
+      updated_at:       now,
+      contract_address: vault.address,
     }
 
     console.log(`[Morpho] ${id} (${vault.name}): ${vault.asset} TVL=$${tvl.toFixed(0)} APY=${apy.toFixed(2)}%`)

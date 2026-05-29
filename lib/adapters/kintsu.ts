@@ -55,16 +55,17 @@ export async function fetchKintsuPools(): Promise<LiquidStakingPool[]> {
   )
 
   const pool: LiquidStakingPool = {
-    id: 'kintsu-smon',
-    protocol: 'Kintsu',
-    type: 'liquid_staking',
+    id:               'kintsu-smon',
+    protocol:         'Kintsu',
+    type:             'liquid_staking',
     tvl,
-    volume_24h: 0,
-    asset: 'MON',
+    volume_24h:       0,
+    asset:            'MON',
     apy,
-    lock_period: null,
-    risk_score: stakingRisk({ protocol: 'Kintsu', tvl, lockDays: null }),
-    updated_at: new Date().toISOString(),
+    lock_period:      null,
+    risk_score:       stakingRisk({ protocol: 'Kintsu', tvl, lockDays: null }),
+    updated_at:       new Date().toISOString(),
+    contract_address: SMON,
   }
 
   return [pool]

@@ -299,16 +299,17 @@ export async function fetchNeverlandPools(): Promise<(LendingPool | BorrowingPoo
 
     // ── Lending pool (supply side) ──────────────────────────────────────────
     const lending: LendingPool = {
-      id: `neverland-lending-${symLower}`,
-      protocol: 'Neverland',
-      type: 'lending',
-      tvl: tvlUsd,
-      volume_24h: 0,
-      asset: r.sym,
-      apy: netSupplyApy,
+      id:               `neverland-lending-${symLower}`,
+      protocol:         'Neverland',
+      type:             'lending',
+      tvl:              tvlUsd,
+      volume_24h:       0,
+      asset:            r.sym,
+      apy:              netSupplyApy,
       utilization,
-      risk_score: lendingRisk({ protocol: 'Neverland', tvl: tvlUsd, utilization: utilization / 100 }),
-      updated_at: now,
+      risk_score:       lendingRisk({ protocol: 'Neverland', tvl: tvlUsd, utilization: utilization / 100 }),
+      updated_at:       now,
+      contract_address: `neverland-lending-${symLower}`,  // slug fallback (lending vs borrowing same asset)
     }
     console.log(
       `[Neverland] lending-${symLower}: TVL=$${tvlUsd.toFixed(0)} base=${supplyBase.toFixed(2)}%` +
@@ -319,16 +320,17 @@ export async function fetchNeverlandPools(): Promise<(LendingPool | BorrowingPoo
     // ── Borrowing pool (borrow side) ────────────────────────────────────────
     if (r.borrowable && borrowBase > 0) {
       const borrowing: BorrowingPool = {
-        id: `neverland-borrowing-${symLower}`,
-        protocol: 'Neverland',
-        type: 'borrowing',
-        tvl: borrowUsd,
-        volume_24h: 0,
-        asset: r.sym,
-        apy: netBorrowApy,
+        id:               `neverland-borrowing-${symLower}`,
+        protocol:         'Neverland',
+        type:             'borrowing',
+        tvl:              borrowUsd,
+        volume_24h:       0,
+        asset:            r.sym,
+        apy:              netBorrowApy,
         utilization,
-        risk_score: borrowingRisk({ protocol: 'Neverland', tvl: tvlUsd, utilization: utilization / 100 }),
-        updated_at: now,
+        risk_score:       borrowingRisk({ protocol: 'Neverland', tvl: tvlUsd, utilization: utilization / 100 }),
+        updated_at:       now,
+        contract_address: `neverland-borrowing-${symLower}`,  // slug fallback (lending vs borrowing same asset)
       }
       console.log(
         `[Neverland] borrowing-${symLower}: borrowed=$${borrowUsd.toFixed(0)}` +

@@ -22,6 +22,7 @@ export function toRow(pool: Pool): PoolRow {
     il_risk: null,
     updated_at: pool.updated_at,
     status: pool.status ?? 'active',
+    contract_address: pool.contract_address ?? null,
   }
 
   if (pool.type === 'lending' || pool.type === 'borrowing') {
@@ -59,6 +60,7 @@ export function fromRow(row: PoolRow): Pool {
       risk_score: row.risk_score ?? 5,
       updated_at: row.updated_at,
       status,
+      contract_address: row.contract_address ?? undefined,
       asset: row.asset ?? '',
       apy: row.apy ?? 0,
       utilization: row.utilization ?? 0,
@@ -75,6 +77,7 @@ export function fromRow(row: PoolRow): Pool {
       risk_score: row.risk_score ?? 5,
       updated_at: row.updated_at,
       status,
+      contract_address: row.contract_address ?? undefined,
       asset: row.asset ?? '',
       apy: row.apy ?? 0,
       lock_period: row.lock_period ?? null,
@@ -90,6 +93,7 @@ export function fromRow(row: PoolRow): Pool {
     risk_score: row.risk_score ?? 5,
     updated_at: row.updated_at,
     status,
+    contract_address: row.contract_address ?? undefined,
     token0: row.token0 ?? '',
     token1: row.token1 ?? '',
     fee_tier: row.fee_tier ?? 0,

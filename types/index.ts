@@ -7,6 +7,7 @@ export interface BasePool {
   risk_score: number
   updated_at: string
   status?: 'active' | 'full'
+  contract_address?: string
 }
 
 export interface LendingPool extends BasePool {
@@ -86,4 +87,5 @@ export interface PoolRow {
   il_risk: string | null
   updated_at: string
   status: string | null
+  contract_address: string | null
 }

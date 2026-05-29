@@ -88,17 +88,18 @@ export async function fetchAprioriPools(): Promise<LiquidStakingPool[]> {
   )
 
   const pool: LiquidStakingPool = {
-    id: POOL_ID,
-    protocol: 'Apriori',
-    type: 'liquid_staking',
+    id:               POOL_ID,
+    protocol:         'Apriori',
+    type:             'liquid_staking',
     tvl,
-    volume_24h: 0,
-    asset: 'MON',
+    volume_24h:       0,
+    asset:            'MON',
     apy,
-    lock_period: null,
-    exchange_rate: newRate,
-    risk_score: stakingRisk({ protocol: 'Apriori', tvl, lockDays: null }),
-    updated_at: new Date().toISOString(),
+    lock_period:      null,
+    exchange_rate:    newRate,
+    risk_score:       stakingRisk({ protocol: 'Apriori', tvl, lockDays: null }),
+    updated_at:       new Date().toISOString(),
+    contract_address: APRMON,
   }
 
   return [pool]

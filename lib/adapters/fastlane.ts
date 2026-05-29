@@ -45,16 +45,17 @@ export async function fetchFastlanePools(): Promise<LiquidStakingPool[]> {
   )
 
   const pool: LiquidStakingPool = {
-    id: 'fastlane-shmon',
-    protocol: 'Fastlane',
-    type: 'liquid_staking',
+    id:               'fastlane-shmon',
+    protocol:         'Fastlane',
+    type:             'liquid_staking',
     tvl,
-    volume_24h: 0,
-    asset: 'MON',
+    volume_24h:       0,
+    asset:            'MON',
     apy,
-    lock_period: null,
-    risk_score: stakingRisk({ protocol: 'Fastlane', tvl, lockDays: null }),
-    updated_at: new Date().toISOString(),
+    lock_period:      null,
+    risk_score:       stakingRisk({ protocol: 'Fastlane', tvl, lockDays: null }),
+    updated_at:       new Date().toISOString(),
+    contract_address: SHMON,
   }
 
   return [pool]

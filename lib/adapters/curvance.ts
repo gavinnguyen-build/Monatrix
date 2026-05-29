@@ -395,32 +395,34 @@ export async function fetchCurvancePools(): Promise<(LendingPool | BorrowingPool
     const isBidir = colBorApr > 0
     results.push({
       id,
-      protocol: 'Curvance',
-      type: 'lending',
-      tvl: isBidir ? loanLiq + loanDebt : tvl,
-      volume_24h: 0,
-      asset: pairKey,
-      apy: depositApy,
-      utilization: utilPct,
-      risk_score: lendingRisk({ protocol: 'Curvance', tvl, utilization: utilFrac }),
-      updated_at: now,
-      status: lendingFull ? 'full' : 'active',
+      protocol:         'Curvance',
+      type:             'lending',
+      tvl:              isBidir ? loanLiq + loanDebt : tvl,
+      volume_24h:       0,
+      asset:            pairKey,
+      apy:              depositApy,
+      utilization:      utilPct,
+      risk_score:       lendingRisk({ protocol: 'Curvance', tvl, utilization: utilFrac }),
+      updated_at:       now,
+      status:           lendingFull ? 'full' : 'active',
+      contract_address: id,  // use slug (each market produces multiple pools)
     })
 
     // Borrow loan token (using col as collateral) — e.g. borrow WBTC against eBTC
     if (loanBorApr > 0 && !BORROW_EXCLUDED.has(`${id}-borrow`)) {
       results.push({
-        id: `${id}-borrow`,
-        protocol: 'Curvance',
-        type: 'borrowing',
-        tvl: loanDebt,
-        volume_24h: 0,
-        asset: pairKey,
-        apy: loanBorApr,
-        utilization: utilPct,
-        risk_score: borrowingRisk({ protocol: 'Curvance', tvl, utilization: utilFrac }),
-        updated_at: now,
-        status: loanBorrowFull ? 'full' : 'active',
+        id:               `${id}-borrow`,
+        protocol:         'Curvance',
+        type:             'borrowing',
+        tvl:              loanDebt,
+        volume_24h:       0,
+        asset:            pairKey,
+        apy:              loanBorApr,
+        utilization:      utilPct,
+        risk_score:       borrowingRisk({ protocol: 'Curvance', tvl, utilization: utilFrac }),
+        updated_at:       now,
+        status:           loanBorrowFull ? 'full' : 'active',
+        contract_address: `${id}-borrow`,
       })
     }
 
@@ -430,17 +432,18 @@ export async function fetchCurvancePools(): Promise<(LendingPool | BorrowingPool
     if (colBorApr > 0) {
       // Borrow col token using loan as collateral (e.g. borrow eBTC against WBTC)
       results.push({
-        id: `${id}-col-borrow`,
-        protocol: 'Curvance',
-        type: 'borrowing',
-        tvl: colDebt,
-        volume_24h: 0,
-        asset: `${loanSym}/${colSym}`,  // col=loan, borrow=col
-        apy: colBorApr,
-        utilization: colUtilFrac * 100,
-        risk_score: borrowingRisk({ protocol: 'Curvance', tvl, utilization: colUtilFrac }),
-        updated_at: now,
-        status: colBorrowFull ? 'full' : 'active',
+        id:               `${id}-col-borrow`,
+        protocol:         'Curvance',
+        type:             'borrowing',
+        tvl:              colDebt,
+        volume_24h:       0,
+        asset:            `${loanSym}/${colSym}`,  // col=loan, borrow=col
+        apy:              colBorApr,
+        utilization:      colUtilFrac * 100,
+        risk_score:       borrowingRisk({ protocol: 'Curvance', tvl, utilization: colUtilFrac }),
+        updated_at:       now,
+        status:           colBorrowFull ? 'full' : 'active',
+        contract_address: `${id}-col-borrow`,
       })
 
       // Reverse lending pool — deposit the col token as collateral (TVL = col-side deposits)
@@ -449,17 +452,18 @@ export async function fetchCurvancePools(): Promise<(LendingPool | BorrowingPool
       const loanNative  = nativeApy[loanBase.toUpperCase()] ?? 0
       const reverseApy  = Math.max(loanNative, colSupRate)
       results.push({
-        id: reverseId,
-        protocol: 'Curvance',
-        type: 'lending',
-        tvl: colTvl,
-        volume_24h: 0,
-        asset: `${loanSym}/${colSym}`,
-        apy: reverseApy,
-        utilization: colUtilFrac * 100,
-        risk_score: lendingRisk({ protocol: 'Curvance', tvl, utilization: colUtilFrac }),
-        updated_at: now,
-        status: colBorrowFull ? 'full' : 'active',
+        id:               reverseId,
+        protocol:         'Curvance',
+        type:             'lending',
+        tvl:              colTvl,
+        volume_24h:       0,
+        asset:            `${loanSym}/${colSym}`,
+        apy:              reverseApy,
+        utilization:      colUtilFrac * 100,
+        risk_score:       lendingRisk({ protocol: 'Curvance', tvl, utilization: colUtilFrac }),
+        updated_at:       now,
+        status:           colBorrowFull ? 'full' : 'active',
+        contract_address: reverseId,
       })
     }
   }

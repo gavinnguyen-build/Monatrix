@@ -5,6 +5,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import type { Pool, LPPool, LendingPool, BorrowingPool, StakingPool, LiquidStakingPool } from '@/types'
 import { ILWarning } from './ILWarning'
 import { CURVANCE_MARKETS, CURVANCE_BORROW_MARKETS } from '@/lib/contracts'
+import { buildPoolUrl } from '@/lib/url'
 
 // ─── Protocol colours ───────────────────────────────────────────────────────
 const PROTOCOL_COLORS: Record<string, string> = {
@@ -396,7 +397,7 @@ function LPTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
                   </td>
                   <td className="px-4 py-3.5 text-right">
                     <button
-                      onClick={e => { e.stopPropagation(); router.push('/pools/' + pool.id) }}
+                      onClick={e => { e.stopPropagation(); router.push(buildPoolUrl(pool)) }}
                       className="px-3.5 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-slate-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--border)] hover:border-slate-500 transition-all"
                     >
                       Deposit
@@ -483,7 +484,7 @@ function LSTTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
               <tr
                 key={pool.id}
                 className="transition-colors cursor-pointer group hover:bg-[var(--card-hover)]"
-                onClick={() => router.push('/pools/' + pool.id)}
+                onClick={() => router.push(buildPoolUrl(pool))}
               >
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-3">
@@ -517,7 +518,7 @@ function LSTTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
                 </td>
                 <td className="px-4 py-3.5 text-right">
                   <button
-                    onClick={e => { e.stopPropagation(); router.push('/pools/' + pool.id) }}
+                    onClick={e => { e.stopPropagation(); router.push(buildPoolUrl(pool)) }}
                     className="px-3.5 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-slate-400 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-[var(--border)] hover:border-slate-500 transition-all"
                   >
                     Stake
@@ -724,14 +725,14 @@ function LendingTable({ pools, showBytes, sortKey, sortDir, onToggleSort }: {
                 <td className="px-4 py-3.5">
                   <div className="flex items-center gap-1.5 justify-end opacity-0 group-hover:opacity-100 transition-all">
                     <button
-                      onClick={() => router.push('/pools/' + lendPool.id)}
+                      onClick={() => router.push(buildPoolUrl(lendPool))}
                       className="px-3 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-[#BFA2FF] rounded-lg hover:bg-[#CC3BFF]/10 hover:border-[#CC3BFF]/40 transition-all"
                     >
                       Lend
                     </button>
                     {borrowPool && (
                       <button
-                        onClick={() => router.push('/pools/' + borrowPool.id)}
+                        onClick={() => router.push(buildPoolUrl(borrowPool))}
                         className="px-3 py-1.5 text-xs font-semibold border border-[var(--border-hover)] text-rose-400 rounded-lg hover:bg-rose-500/10 hover:border-rose-500/30 transition-all"
                       >
                         Borrow

@@ -1,69 +1,33 @@
-'use client'
+import { permanentRedirect, notFound } from 'next/navigation'
+import { supabase } from '@/lib/supabase'
+import { fromRow } from '@/lib/normalize'
+import { buildPoolUrl } from '@/lib/url'
+import PoolDetailClient from '@/components/PoolDetailClient'
+import type { PoolRow } from '@/types'
 
-import { useEffect, useState } from 'react'
-import { useRouter, useParams } from 'next/navigation'
-import type { Pool } from '@/types'
-import { PoolPage } from '@/components/PoolPage'
+export const dynamic = 'force-dynamic'
 
-export default function PoolDetailPage() {
-  const router = useRouter()
-  const params = useParams()
-  const id = params?.id as string | undefined
+export default async function PoolDetailPage({
+  params,
+}: {
+  params: Promise<{ id: string }>
+}) {
+  const { id } = await params
 
-  const [pool, setPool] = useState<Pool | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [notFound, setNotFound] = useState(false)
+  const { data } = await supabase
+    .from('pools')
+    .select('*')
+    .eq('id', id)
+    .maybeSingle()
 
-  useEffect(() => {
-    if (!id) return
-    fetch(`/api/pools/${encodeURIComponent(id)}`)
-      .then(res => {
-        if (!res.ok) throw new Error('Not found')
-        return res.json()
-      })
-      .then(data => { setPool(data); setLoading(false) })
-      .catch(() => { setNotFound(true); setLoading(false) })
-  }, [id])
+  if (!data) return notFound()
 
-  return (
-    <div className="min-h-screen bg-[var(--bg)]">
-      <div className="max-w-5xl mx-auto px-4 py-6">
-        <button
-          type="button"
-          onClick={() => router.back()}
-          className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-300 transition-colors mb-6"
-        >
-          ← Pools
-        </button>
+  const pool = fromRow(data as PoolRow)
 
-        {loading && <LoadingSkeleton />}
-        {notFound && (
-          <div className="text-center py-16">
-            <p className="text-slate-400 text-sm">Pool not found.</p>
-            <button
-              type="button"
-              onClick={() => router.back()}
-              className="mt-4 text-xs text-[#CC3BFF] hover:text-[#BFA2FF] transition-colors"
-            >
-              Back to pools
-            </button>
-          </div>
-        )}
-        {pool && <PoolPage pool={pool} />}
-      </div>
-    </div>
-  )
-}
+  // Redirect to canonical URL if contract_address is available
+  if ((data as PoolRow).contract_address) {
+    permanentRedirect(buildPoolUrl(pool))
+  }
 
-function LoadingSkeleton() {
-  return (
-    <div className="animate-pulse space-y-4">
-      <div className="h-10 bg-[#1a2535] rounded-xl w-64" />
-      <div className="h-20 bg-[#1a2535] rounded-2xl" />
-      <div className="grid md:grid-cols-2 gap-4">
-        <div className="h-48 bg-[#1a2535] rounded-2xl" />
-        <div className="h-48 bg-[#1a2535] rounded-2xl" />
-      </div>
-    </div>
-  )
+  return <PoolDetailClient pool={pool} />
 }

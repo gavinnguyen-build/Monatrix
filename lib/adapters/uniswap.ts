@@ -159,21 +159,22 @@ export async function fetchUniswapPools(): Promise<LPPool[]> {
     const displayT1 = rawT1.toUpperCase() === 'WMON' ? 'MON' : rawT1
 
     const lp: LPPool = {
-      id:         poolId,
-      protocol:   'Uniswap',
-      type:       'lp',
+      id:               poolId,
+      protocol:         'Uniswap',
+      type:             'lp',
       tvl,
-      volume_24h: vol24h,
-      token0:     displayT0,
-      token1:     displayT1,
-      fee_tier:   feeTierBps,
-      fee_apr:    feeApr,
-      reward_apr: 0,
-      total_apr:  feeApr,
-      in_range:   true,
-      il_risk:    ilRisk(t0sym, t1sym),
-      risk_score: lpRisk({ protocol: 'Uniswap', token0: t0sym, token1: t1sym, tvl, vol24h }),
-      updated_at: now,
+      volume_24h:       vol24h,
+      token0:           displayT0,
+      token1:           displayT1,
+      fee_tier:         feeTierBps,
+      fee_apr:          feeApr,
+      reward_apr:       0,
+      total_apr:        feeApr,
+      in_range:         true,
+      il_risk:          ilRisk(t0sym, t1sym),
+      risk_score:       lpRisk({ protocol: 'Uniswap', token0: t0sym, token1: t1sym, tvl, vol24h }),
+      updated_at:       now,
+      contract_address: pool.id,  // pool contract address (V3) or poolId bytes32 (V4)
     }
 
     console.log(`[Uniswap] ${poolId}: TVL=$${tvl.toFixed(0)}, vol24h=$${vol24h.toFixed(0)}, APR=${feeApr.toFixed(2)}%`)

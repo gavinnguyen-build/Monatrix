@@ -174,21 +174,22 @@ export async function fetchKuruPools(): Promise<LPPool[]> {
     const il = ilRisk(baseT, quoteT)
 
     const pool: LPPool = {
-      id: `kuru-${baseT.toLowerCase()}-${quoteT.toLowerCase()}`,
-      protocol: 'Kuru',
-      type: 'lp',
+      id:               `kuru-${baseT.toLowerCase()}-${quoteT.toLowerCase()}`,
+      protocol:         'Kuru',
+      type:             'lp',
       tvl,
-      volume_24h: vol24h,
-      token0: baseT,
-      token1: quoteT,
-      fee_tier: feeBps,
-      fee_apr: feeApr,
-      reward_apr: 0,
-      total_apr: feeApr,
-      in_range: true,
-      il_risk: il,
-      risk_score: lpRisk({ protocol: 'Kuru', token0: baseT, token1: quoteT, tvl, vol24h }),
-      updated_at: now,
+      volume_24h:       vol24h,
+      token0:           baseT,
+      token1:           quoteT,
+      fee_tier:         feeBps,
+      fee_apr:          feeApr,
+      reward_apr:       0,
+      total_apr:        feeApr,
+      in_range:         true,
+      il_risk:          il,
+      risk_score:       lpRisk({ protocol: 'Kuru', token0: baseT, token1: quoteT, tvl, vol24h }),
+      updated_at:       now,
+      contract_address: m.kuruammvault,
     }
 
     console.log(
@@ -305,21 +306,22 @@ export async function fetchKuruVaultPools(): Promise<LPPool[]> {
     const il = ilRisk(v.token0, v.token1)
 
     const pool: LPPool = {
-      id: `kuru-vault-${v.token0.toLowerCase()}-${v.token1.toLowerCase()}`,
-      protocol: 'Kuru',
-      type: 'lp',
+      id:               `kuru-vault-${v.token0.toLowerCase()}-${v.token1.toLowerCase()}`,
+      protocol:         'Kuru',
+      type:             'lp',
       tvl,
-      volume_24h: 0,
-      token0: v.token0,
-      token1: v.token1,
-      fee_tier: 0,
-      fee_apr: 0,
-      reward_apr: merklApr,
-      total_apr: merklApr,
-      in_range: true,
-      il_risk: il,
-      risk_score: lpRisk({ protocol: 'Kuru', token0: v.token0, token1: v.token1, tvl, vol24h: 0 }),
-      updated_at: now,
+      volume_24h:       0,
+      token0:           v.token0,
+      token1:           v.token1,
+      fee_tier:         0,
+      fee_apr:          0,
+      reward_apr:       merklApr,
+      total_apr:        merklApr,
+      in_range:         true,
+      il_risk:          il,
+      risk_score:       lpRisk({ protocol: 'Kuru', token0: v.token0, token1: v.token1, tvl, vol24h: 0 }),
+      updated_at:       now,
+      contract_address: v.addr,
     }
 
     console.log(
