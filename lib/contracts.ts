@@ -1234,6 +1234,125 @@ export const UNISWAP_V3_POOLS: Record<string, {
     fee:         100, tickSpacing: 1,
     wmonSide:    'none',
   },
+  // ── New V3 pools ────────────────────────────────────────────────────────────
+  // AUSD (0x0000...) < DUST (0xAD96...) → token0=AUSD, token1=DUST, fee=10000
+  'uniswap-v3-ausd-dust': {
+    address:     '0xD15965968fe8BF2BAbbe39b2FC5de1Ab6749141F',
+    token0:      '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', // AUSD 6 dec
+    token0Dec:   6,  token0Sym: 'AUSD',
+    token1:      '0xAD96C3dffCD6374294e2573A7fBBA96097CC8d7c', // DUST 18 dec
+    token1Dec:   18, token1Sym: 'DUST',
+    fee:         10000, tickSpacing: 200,
+    wmonSide:    'none',
+  },
+  // EARN (0x3dB6...) < USDC (0x754...) → token0=EARN, token1=USDC, fee=10000
+  'uniswap-v3-earn-usdc': {
+    address:     '0x34Cb076Bcc920A76f54F4120D37472570467819C',
+    token0:      '0x3dB619ff72D877490699276061FB0Fa0618FDf47', // EARN 18 dec
+    token0Dec:   18, token0Sym: 'EARN',
+    token1:      '0x754704bc059f8c67012fed69bc8a327a5aafb603', // USDC 6 dec
+    token1Dec:   6,  token1Sym: 'USDC',
+    fee:         10000, tickSpacing: 200,
+    wmonSide:    'none',
+  },
+  // WMON (0x3bd3...) < EARN (0x3dB6...) → token0=WMON, token1=EARN, fee=10000
+  'uniswap-v3-mon-earn': {
+    address:     '0x0485A5b85266fa0A6Ef9D4d5a01E2d7A334a81dC',
+    token0:      '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', // WMON 18 dec
+    token0Dec:   18, token0Sym: 'MON',
+    token1:      '0x3dB619ff72D877490699276061FB0Fa0618FDf47', // EARN 18 dec
+    token1Dec:   18, token1Sym: 'EARN',
+    fee:         10000, tickSpacing: 200,
+    wmonSide:    'token0',
+  },
+  // WMON (0x3bd3...) < GMONAD (0x7DB5...) → token0=WMON, token1=GMONAD, fee=10000
+  'uniswap-v3-mon-gmonad': {
+    address:     '0xe305E87C6E8bec4b97879Eb96be92844CB57E95e',
+    token0:      '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', // WMON 18 dec
+    token0Dec:   18, token0Sym: 'MON',
+    token1:      '0x7DB552eEb6b77a6babe6e0A739b5382CD653CC3e', // GMONAD 18 dec
+    token1Dec:   18, token1Sym: 'GMONAD',
+    fee:         10000, tickSpacing: 200,
+    wmonSide:    'token0',
+  },
+  // WMON (0x3bd3...) < sMON (0xA322...) → token0=WMON, token1=sMON, fee=100
+  'uniswap-v3-mon-smon': {
+    address:     '0x36a81Ebd73B86b485a14911EA16F3D7c96CC00b0',
+    token0:      '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', // WMON 18 dec
+    token0Dec:   18, token0Sym: 'MON',
+    token1:      '0xA3227C5969757783154C60bF0bC1944180ed81B9', // sMON 18 dec
+    token1Dec:   18, token1Sym: 'sMON',
+    fee:         100, tickSpacing: 1,
+    wmonSide:    'token0',
+  },
+  // WMON (0x3bd3...) < USDC (0x754..) → token0=WMON, token1=USDC, fee=10000
+  'uniswap-v3-mon-usdc-2': {
+    address:     '0xC33e9E441e6f4E74CdB34f878bE51189C9CB00D8',
+    token0:      '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', // WMON 18 dec
+    token0Dec:   18, token0Sym: 'MON',
+    token1:      '0x754704bc059f8c67012fed69bc8a327a5aafb603', // USDC 6 dec
+    token1Dec:   6,  token1Sym: 'USDC',
+    fee:         10000, tickSpacing: 200,
+    wmonSide:    'token0',
+  },
+  // WMON (0x3bd3...) < USDT0 (0xe7cd...) → token0=WMON, token1=USDT0, fee=3000
+  'uniswap-v3-mon-usdt0': {
+    address:     '0x16D564690D32802A0562B4A8A2378350525b365F',
+    token0:      '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', // WMON 18 dec
+    token0Dec:   18, token0Sym: 'MON',
+    token1:      '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', // USDT0 6 dec
+    token1Dec:   6,  token1Sym: 'USDT0',
+    fee:         3000, tickSpacing: 60,
+    wmonSide:    'token0',
+  },
+  // WMON (0x3bd3...) < USDT0 (0xe7cd...) → token0=WMON, token1=USDT0, fee=10000
+  'uniswap-v3-mon-usdt0-2': {
+    address:     '0x9665897a0b66Cb9daBEb248C279fd0967C018608',
+    token0:      '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', // WMON 18 dec
+    token0Dec:   18, token0Sym: 'MON',
+    token1:      '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', // USDT0 6 dec
+    token1Dec:   6,  token1Sym: 'USDT0',
+    fee:         10000, tickSpacing: 200,
+    wmonSide:    'token0',
+  },
+  // USDC (0x754..) < USDT0 (0xe7cd...) → token0=USDC, token1=USDT0, fee=100
+  'uniswap-v3-usdc-usdt0': {
+    address:     '0xacf82ECC826A9fc2D8c8C4d370d2D268fA5B3500',
+    token0:      '0x754704bc059f8c67012fed69bc8a327a5aafb603', // USDC 6 dec
+    token0Dec:   6,  token0Sym: 'USDC',
+    token1:      '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', // USDT0 6 dec
+    token1Dec:   6,  token1Sym: 'USDT0',
+    fee:         100, tickSpacing: 1,
+    wmonSide:    'none',
+  },
+  // USDC (0x754..) < USDT0 (0xe7cd...) → token0=USDC, token1=USDT0, fee=500
+  'uniswap-v3-usdc-usdt0-2': {
+    address:     '0xa00D8Ec3c0cC20E93Cad749695392a0B61fe8Ca3',
+    token0:      '0x754704bc059f8c67012fed69bc8a327a5aafb603', // USDC 6 dec
+    token0Dec:   6,  token0Sym: 'USDC',
+    token1:      '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', // USDT0 6 dec
+    token1Dec:   6,  token1Sym: 'USDT0',
+    fee:         500, tickSpacing: 10,
+    wmonSide:    'none',
+  },
+  // WBTC (0x0555..) < USDC (0x754..) → token0=WBTC, token1=USDC, fee=3000
+  'uniswap-v3-wbtc-usdc': {
+    address:     '0xB0B083E0353f7df4D5EE1C812eA8c6960c080373',
+    token0:      '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', // WBTC 8 dec
+    token0Dec:   8,  token0Sym: 'WBTC',
+    token1:      '0x754704bc059f8c67012fed69bc8a327a5aafb603', // USDC 6 dec
+    token1Dec:   6,  token1Sym: 'USDC',
+    fee:         3000, tickSpacing: 60,
+    wmonSide:    'none',
+  },
+  // ── old-format aliases (no fee suffix → canonical config with fee) ──────────
+  'uniswap-v3-alloca-mon':  { address: '0x1ED2F2057901BBEf02EFbC9928b113a15844A19a', token0: '0x1ad7052bb331a0529c1981c3ec2bc4663498a110', token0Dec: 18, token0Sym: 'ALLOCA', token1: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', token1Dec: 18, token1Sym: 'MON',  fee: 3000,  tickSpacing: 60,  wmonSide: 'token1' },
+  'uniswap-v3-shmon-mon':   { address: '0x1f86a9F2441caC9B942CFb5445530CdBB28717eD', token0: '0x1B68626dCa36c7fE922fD2d55E4f631d962dE19c', token0Dec: 18, token0Sym: 'shMON', token1: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', token1Dec: 18, token1Sym: 'MON',  fee: 100,   tickSpacing: 1,   wmonSide: 'token1' },
+  'uniswap-v3-mon-gmon':    { address: '0xb80d7a8F5331A907E34CD73f575c784B43E5acb5', token0: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', token0Dec: 18, token0Sym: 'MON',   token1: '0x8498312A6B3CbD158bf0c93AbdCF29E6e4F55081', token1Dec: 18, token1Sym: 'gMON', fee: 100,   tickSpacing: 1,   wmonSide: 'token0' },
+  'uniswap-v3-mon-usdc':    { address: '0x659bd0bc4167ba25c62e05656f78043e7ed4a9da', token0: '0x3bd359C1119dA7Da1D913D1C4D2B7c461115433A', token0Dec: 18, token0Sym: 'MON',   token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', token1Dec: 6,  token1Sym: 'USDC', fee: 3000,  tickSpacing: 60,  wmonSide: 'token0' },
+  'uniswap-v3-usdc-dust':   { address: '0xF98D134EF12E3D5DbcF986504B799999b7ded631', token0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', token0Dec: 6,  token0Sym: 'USDC',  token1: '0xAD96C3dffCD6374294e2573A7fBBA96097CC8d7c', token1Dec: 18, token1Sym: 'DUST', fee: 10000, tickSpacing: 200, wmonSide: 'none'   },
+  'uniswap-v3-usdc-weth':   { address: '0x25EF1a210fF55BcEe9F8fee979aAFf6bD1bE5Bf1', token0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', token0Dec: 6,  token0Sym: 'USDC',  token1: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242', token1Dec: 18, token1Sym: 'WETH', fee: 3000,  tickSpacing: 60,  wmonSide: 'none'   },
+  'uniswap-v3-eurw-usdc':   { address: '0xe153201e40F50EBc9DA7Be3AA9C419f185C97F44', token0: '0x1111B3DED9F1fE1801AD4ebeF8E2788183a24111', token0Dec: 6,  token0Sym: 'EURW',  token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', token1Dec: 6,  token1Sym: 'USDC', fee: 100,   tickSpacing: 1,   wmonSide: 'none'   },
 }
 
 // ── Uniswap V2 ────────────────────────────────────────────────────────────────
@@ -1540,6 +1659,138 @@ export const UNISWAP_V4_POOLS: Record<string, {
     currency1: '0x81A224F8A62f52BdE942dBF23A56df77A10b7777', c1Dec: 18, c1Sym: 'EMO',
     fee: 10000, tickSpacing: 200, hasNative: false,
   },
+  // ── New V4 pools (additional fee tiers / new tokens) ─────────────────────────
+  // native (0x00...) < cbBTC (0xd18b...) → fee=500, ts=10
+  'uniswap-v4-mon-cbbtc-500-nohook': {
+    poolId:    '0x85ebb7759e91fab2c110e5af899a59ef0e1b40c8265ec939aa4f31af4447acdc',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0xd18B7EC58Cdf4876f6AFebd3Ed1730e4Ce10414b', c1Dec: 8,  c1Sym: 'cbBTC',
+    fee: 500, tickSpacing: 10, hasNative: true,
+  },
+  // native (0x00...) < USDC (0x754...) → fee=10000, ts=200
+  'uniswap-v4-mon-usdc-10000-nohook': {
+    poolId:    '0x8b926a72640b5766c5daa65365c24009618a91cab560946b550e4aa5ce2ae5f2',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',
+    fee: 10000, tickSpacing: 200, hasNative: true,
+  },
+  // native (0x00...) < USDC (0x754...) → fee=30000, ts=600
+  'uniswap-v4-mon-usdc-30000-nohook': {
+    poolId:    '0x58249cb3e44c955d48c6176b1dd5888b7300f0d0b2d1ae934ca8063d16968f9b',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',
+    fee: 30000, tickSpacing: 600, hasNative: true,
+  },
+  // native (0x00...) < aprMON (0x0c65...) → fee=500, ts=10
+  'uniswap-v4-mon-aprmon-500-nohook': {
+    poolId:    '0x8d8bea4b3489edaa56c081dbf4cc9f0cf6d80eeb29cc4df6ad956b0dc1d245e2',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0x0c65A0BC65a5D819235B71F554D210D3F80E0852', c1Dec: 18, c1Sym: 'aprMON',
+    fee: 500, tickSpacing: 10, hasNative: true,
+  },
+  // native (0x00...) < LVMON (0x91b8...) → fee=3000, ts=60
+  'uniswap-v4-mon-lvmon-3000-nohook': {
+    poolId:    '0xaacb7e969638eefea2a1bb2710adab08091fb1f05f31f110b5c4aea54c6a0673',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0x91b81bfbe3a747230f0529aa28d8b2bc898e6d56', c1Dec: 18, c1Sym: 'LVMON',
+    fee: 3000, tickSpacing: 60, hasNative: true,
+  },
+  // native (0x00...) < USDT0 (0xe7cd...) → fee=3000, ts=60
+  'uniswap-v4-mon-usdt0-3000-nohook': {
+    poolId:    '0x21751b14f200827b17546330b42ee3969fd703681db8fe7ba35c95fe617b0262',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', c1Dec: 6,  c1Sym: 'USDT0',
+    fee: 3000, tickSpacing: 60, hasNative: true,
+  },
+  // native (0x00...) < wstETH (0x10ae...) → fee=500, ts=1
+  'uniswap-v4-mon-wsteth-500-nohook': {
+    poolId:    '0xbfd64af1b32c101eeff4f7d51a0f1f522c6a6cdf4de45ae340a58c3d1309032c',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0x10aeaf63194db8d453d4d85a06e5efe1dd0b5417', c1Dec: 18, c1Sym: 'wstETH',
+    fee: 500, tickSpacing: 1, hasNative: true,
+  },
+  // shMON (0x1b68...) < USDC (0x754...) → fee=3000, ts=60
+  'uniswap-v4-shmon-usdc-3000-nohook': {
+    poolId:    '0xdc0ce2f0103b4355697abd804bc4df189874580afe10819adc8322c0c03a5fed',
+    currency0: '0x1B68626dCa36c7fE922fD2d55E4f631d962dE19c', c0Dec: 18, c0Sym: 'shMON',
+    currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',
+    fee: 3000, tickSpacing: 60, hasNative: false,
+  },
+  // USDC (0x754...) < USDT0 (0xe7cd...) → fee=20, ts=1
+  'uniswap-v4-usdc-usdt0-20-nohook': {
+    poolId:    '0x4ac1e6d2eeefa340e9e05ff0b67c0962b500fb7ab1bde4ace7a5ad631da2dc33',
+    currency0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c0Dec: 6,  c0Sym: 'USDC',
+    currency1: '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', c1Dec: 6,  c1Sym: 'USDT0',
+    fee: 20, tickSpacing: 1, hasNative: false,
+  },
+  // native (0x00...) < EMO (0x81A2...) → fee=10000, ts=200
+  'uniswap-v4-mon-emo-10000-nohook': {
+    poolId:    '0x73be9985dc311390911e4265e900e0fcc1b8a899113a660ff2e80f2ced5163b4',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0x81A224F8A62f52BdE942dBF23A56df77A10b7777', c1Dec: 18, c1Sym: 'EMO',
+    fee: 10000, tickSpacing: 200, hasNative: true,
+  },
+  // XAUt0 (0x01bf...) < WBTC (0x0555...) → fee=2500, ts=50
+  'uniswap-v4-xaut0-wbtc-2500-nohook': {
+    poolId:    '0xf2396fe04aa001ea62f0651f9a9d6b4d8392b50282ce5deb4c23296e95067acb',
+    currency0: '0x01bff41798a0bcf287b996046ca68b395dbc1071', c0Dec: 6,  c0Sym: 'XAUt0',
+    currency1: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', c1Dec: 8,  c1Sym: 'WBTC',
+    fee: 2500, tickSpacing: 50, hasNative: false,
+  },
+  // WBTC (0x0555...) < eBTC (0xd691...) → fee=100, ts=1; eBTC decimals=10 (verified on-chain)
+  'uniswap-v4-wbtc-ebtc-100-nohook': {
+    poolId:    '0xd0507e42a65643f28cb88ec02e90199128a0dc490665f8c199e938ce706f7f7b',
+    currency0: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', c0Dec: 8,  c0Sym: 'WBTC',
+    currency1: '0xd691b0aFed67F96CEC28Ab6308Cbe5b2C103b7e9', c1Dec: 10, c1Sym: 'eBTC',
+    fee: 100, tickSpacing: 1, hasNative: false,
+  },
+  // native (0x00...) < GMONAD (0x7DB5...) → fee=10000, ts=200
+  'uniswap-v4-mon-gmonad-10000-nohook': {
+    poolId:    '0xf49efde6fee22f3b755d1f2020726fb5e8adac8176013d8af931b3e9bb5c9fd0',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0x7DB552eEb6b77a6babe6e0A739b5382CD653CC3e', c1Dec: 18, c1Sym: 'GMONAD',
+    fee: 10000, tickSpacing: 200, hasNative: true,
+  },
+  // native (0x00...) < GMONAD (0x7DB5...) → fee=100, ts=1
+  'uniswap-v4-mon-gmonad-100-nohook': {
+    poolId:    '0xd34e629ba2de02e79ea08f2af3ea86ddf8a07a39c3825b14b3d60fd887ce1cbb',
+    currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',
+    currency1: '0x7DB552eEb6b77a6babe6e0A739b5382CD653CC3e', c1Dec: 18, c1Sym: 'GMONAD',
+    fee: 100, tickSpacing: 1, hasNative: true,
+  },
+  // ── old-format aliases (no fee/suffix → canonical nohook config) ────────────
+  'uniswap-v4-ausd-usdc':      { poolId: '0x092b650478145f0aee73a1b400b342b9c6314db2e07aeb91faf7e75e8159ce72', currency0: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', c0Dec: 6,  c0Sym: 'AUSD',  currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',  fee: 50,    tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-ausd-usdc-2':    { poolId: '0x9d466756627d512706e6feebe92b297b7c1ece27fa8a201321794953fc1a88b4', currency0: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', c0Dec: 6,  c0Sym: 'AUSD',  currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',  fee: 8,     tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-ausd-usdc-3':    { poolId: '0xd112fde908d7342135fc7297cc53d25bf7a11d6c6e21fe7ac3e73c40f70827e8', currency0: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', c0Dec: 6,  c0Sym: 'AUSD',  currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',  fee: 9,     tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-ausd-usdt0':     { poolId: '0xe56868928b91fcd5ebeada3d0ec8767f2bbfeb1e7da181203d13f6af76b03bf9', currency0: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', c0Dec: 6,  c0Sym: 'AUSD',  currency1: '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', c1Dec: 6,  c1Sym: 'USDT0', fee: 50,    tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-ausd-wbtc':      { poolId: '0x6fed390faee91596851fdf2fa74c0f799d6bbe4f317b7d6ab16ef31fc974e4da', currency0: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', c0Dec: 6,  c0Sym: 'AUSD',  currency1: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', c1Dec: 8,  c1Sym: 'WBTC',  fee: 500,   tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-ausd-xaut0':     { poolId: '0xe1a8600687e4d06ca4787e5d0ccdacb1d360bfc9ca6ca2a49a688e14d0ef37b4', currency0: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', c0Dec: 6,  c0Sym: 'AUSD',  currency1: '0x01bff41798a0bcf287b996046ca68b395dbc1071', c1Dec: 6,  c1Sym: 'XAUt0', fee: 500,   tickSpacing: 10,  hasNative: false },
+  'uniswap-v4-earnausd-ausd':  { poolId: '0x23de420388ac221df146acc41556e74049429a0d186edcd84b21c1d0f743577e', currency0: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', c0Dec: 6,  c0Sym: 'AUSD',  currency1: '0x103222f020e98Bba0AD9809A011FDF8e6F067496', c1Dec: 6,  c1Sym: 'EARNAUSD', fee: 100, tickSpacing: 1, hasNative: false },
+  'uniswap-v4-mon-ausd':       { poolId: '0xadaf30776f551bccdfb307c3fd8cdec198ca9a852434c8022ee32d1ccedd8219', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', c1Dec: 6,  c1Sym: 'AUSD',  fee: 500,   tickSpacing: 1,   hasNative: true  },
+  'uniswap-v4-mon-cbbtc':      { poolId: '0x85ebb7759e91fab2c110e5af899a59ef0e1b40c8265ec939aa4f31af4447acdc', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0xd18B7EC58Cdf4876f6AFebd3Ed1730e4Ce10414b', c1Dec: 8,  c1Sym: 'cbBTC', fee: 500,   tickSpacing: 10,  hasNative: true  },
+  'uniswap-v4-mon-chog':       { poolId: '0xcfd2d35fee02342ed362279b83debe5691b288c0016f4993b944f8161300f60c', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x350035555E10d9AfAF1566AaebfCeD5BA6C27777', c1Dec: 18, c1Sym: 'CHOG',  fee: 10000, tickSpacing: 200, hasNative: true  },
+  'uniswap-v4-mon-gmonad':     { poolId: '0xf49efde6fee22f3b755d1f2020726fb5e8adac8176013d8af931b3e9bb5c9fd0', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x7DB552eEb6b77a6babe6e0A739b5382CD653CC3e', c1Dec: 18, c1Sym: 'GMONAD',fee: 10000, tickSpacing: 200, hasNative: true  },
+  'uniswap-v4-mon-shmon':      { poolId: '0x0a2eb246aac042fed4eeaf8bce78df3568cbe21701c969812702633085b8f771', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x1B68626dCa36c7fE922fD2d55E4f631d962dE19c', c1Dec: 18, c1Sym: 'shMON', fee: 100,   tickSpacing: 1,   hasNative: true  },
+  'uniswap-v4-mon-usdc':       { poolId: '0x18a9fc874581f3ba12b7898f80a683c66fd5877fd74b26a85ba9a3a79c549954', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',  fee: 500,   tickSpacing: 10,  hasNative: true  },
+  'uniswap-v4-mon-usdc-2':     { poolId: '0x7d892749d0562b0f78a26cdec26e97ec9dc7f8d1997cb590643ab69f10a1da0e', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',  fee: 3000,  tickSpacing: 60,  hasNative: true  },
+  'uniswap-v4-mon-usdc-3':     { poolId: '0x8b926a72640b5766c5daa65365c24009618a91cab560946b550e4aa5ce2ae5f2', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',  fee: 10000, tickSpacing: 200, hasNative: true  },
+  'uniswap-v4-mon-wbtc':       { poolId: '0x1c93dd2f2f47439330150bf728c3beeaad71de45420a49183214898b044b65d1', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', c1Dec: 8,  c1Sym: 'WBTC',  fee: 500,   tickSpacing: 1,   hasNative: true  },
+  'uniswap-v4-mon-weth':       { poolId: '0x3783b51e33900eb366a9e8473c76cda441e7170d2e5d96927f30c16a7add93aa', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242', c1Dec: 18, c1Sym: 'WETH',  fee: 500,   tickSpacing: 1,   hasNative: true  },
+  'uniswap-v4-mon-wsteth':     { poolId: '0xbfd64af1b32c101eeff4f7d51a0f1f522c6a6cdf4de45ae340a58c3d1309032c', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x10aeaf63194db8d453d4d85a06e5efe1dd0b5417', c1Dec: 18, c1Sym: 'wstETH',fee: 500,   tickSpacing: 1,   hasNative: true  },
+  'uniswap-v4-shmon-usdc':     { poolId: '0xdc0ce2f0103b4355697abd804bc4df189874580afe10819adc8322c0c03a5fed', currency0: '0x1B68626dCa36c7fE922fD2d55E4f631d962dE19c', c0Dec: 18, c0Sym: 'shMON', currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',  fee: 3000,  tickSpacing: 60,  hasNative: false },
+  'uniswap-v4-usdc-cbbtc':     { poolId: '0x7fc6232a9ec6cc4e9434640dcde5ee08ccae3b07de3247bf788fc9e2051b449e', currency0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c0Dec: 6,  c0Sym: 'USDC',  currency1: '0xd18B7EC58Cdf4876f6AFebd3Ed1730e4Ce10414b', c1Dec: 8,  c1Sym: 'cbBTC', fee: 500,   tickSpacing: 10,  hasNative: false },
+  'uniswap-v4-usdc-usdt0':     { poolId: '0x4ac1e6d2eeefa340e9e05ff0b67c0962b500fb7ab1bde4ace7a5ad631da2dc33', currency0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c0Dec: 6,  c0Sym: 'USDC',  currency1: '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', c1Dec: 6,  c1Sym: 'USDT0', fee: 20,    tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-usdc-weth':      { poolId: '0xad408916c1c310da9c258d4c128a7bf50fd9edc42a218cc970da39cfc8a05d93', currency0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c0Dec: 6,  c0Sym: 'USDC',  currency1: '0xee8c0e9f1bffb4eb878d8f15f368a02a35481242', c1Dec: 18, c1Sym: 'WETH',  fee: 500,   tickSpacing: 10,  hasNative: false },
+  'uniswap-v4-wbtc-cbbtc':     { poolId: '0xab7e9e8e532098ef4802c25490136d4f84089dea5900b3bec6153561d17b37bd', currency0: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', c0Dec: 8,  c0Sym: 'WBTC',  currency1: '0xd18B7EC58Cdf4876f6AFebd3Ed1730e4Ce10414b', c1Dec: 8,  c1Sym: 'cbBTC', fee: 100,   tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-wbtc-ebtc':      { poolId: '0xd0507e42a65643f28cb88ec02e90199128a0dc490665f8c199e938ce706f7f7b', currency0: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', c0Dec: 8,  c0Sym: 'WBTC',  currency1: '0xd691b0aFed67F96CEC28Ab6308Cbe5b2C103b7e9', c1Dec: 10, c1Sym: 'eBTC',  fee: 100,   tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-wbtc-usdc':      { poolId: '0xd77c0f253764f5d5fbc78e13888afcc35c839262e6b21cd02baa9d8551a9898a', currency0: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', c0Dec: 8,  c0Sym: 'WBTC',  currency1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', c1Dec: 6,  c1Sym: 'USDC',  fee: 500,   tickSpacing: 10,  hasNative: false },
+  'uniswap-v4-weeth-weth':     { poolId: '0x2884b37c4a144e7047a1377ba7201d4b8ea318f0240369e01dc400f04e6cac40', currency0: '0xa3d68b74bf0528fdd07263c60d6488749044914b', c0Dec: 18, c0Sym: 'weETH', currency1: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242', c1Dec: 18, c1Sym: 'WETH',  fee: 100,   tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-wsteth-weth':    { poolId: '0x55d7ed991392eb9597a76a5f41dfb964e291452c15107c0e64fd3d25925394ce', currency0: '0x10aeaf63194db8d453d4d85a06e5efe1dd0b5417', c0Dec: 18, c0Sym: 'wstETH',currency1: '0xEE8c0E9f1BFFb4Eb878d8f15f368A02a35481242', c1Dec: 18, c1Sym: 'WETH',  fee: 100,   tickSpacing: 1,   hasNative: false },
+  'uniswap-v4-xaut0-wbtc':     { poolId: '0xf2396fe04aa001ea62f0651f9a9d6b4d8392b50282ce5deb4c23296e95067acb', currency0: '0x01bff41798a0bcf287b996046ca68b395dbc1071', c0Dec: 6,  c0Sym: 'XAUt0', currency1: '0x0555E30da8f98308EdB960aa94C0Db47230d2B9c', c1Dec: 8,  c1Sym: 'WBTC',  fee: 2500,  tickSpacing: 50,  hasNative: false },
+  'uniswap-v4-mon-aprmon':     { poolId: '0x8d8bea4b3489edaa56c081dbf4cc9f0cf6d80eeb29cc4df6ad956b0dc1d245e2', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x0c65A0BC65a5D819235B71F554D210D3F80E0852', c1Dec: 18, c1Sym: 'aprMON',fee: 500,   tickSpacing: 10,  hasNative: true  },
+  'uniswap-v4-mon-lvmon':      { poolId: '0xaacb7e969638eefea2a1bb2710adab08091fb1f05f31f110b5c4aea54c6a0673', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x91b81bfbe3a747230f0529aa28d8b2bc898e6d56', c1Dec: 18, c1Sym: 'LVMON', fee: 3000,  tickSpacing: 60,  hasNative: true  },
+  'uniswap-v4-mon-usdt0':      { poolId: '0x21751b14f200827b17546330b42ee3969fd703681db8fe7ba35c95fe617b0262', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0xe7cd86e13AC4309349F30B3435a9d337750fC82D', c1Dec: 6,  c1Sym: 'USDT0', fee: 3000,  tickSpacing: 60,  hasNative: true  },
+  'uniswap-v4-mon-emo':        { poolId: '0x73be9985dc311390911e4265e900e0fcc1b8a899113a660ff2e80f2ced5163b4', currency0: '0x0000000000000000000000000000000000000000', c0Dec: 18, c0Sym: 'MON',   currency1: '0x81A224F8A62f52BdE942dBF23A56df77A10b7777', c1Dec: 18, c1Sym: 'EMO',   fee: 10000, tickSpacing: 200, hasNative: true  },
 }
 
 export const UNISWAP_V2_POOLS: Record<string, {
@@ -1560,6 +1811,14 @@ export const UNISWAP_V2_POOLS: Record<string, {
     token1:    '0xAD96C3dffCD6374294e2573A7fBBA96097CC8d7c', // DUST 18 dec
     token1Dec: 18,
     token1Sym: 'DUST',
+  },
+  // old-format alias (reversed token order in name, same pool)
+  'uniswap-v2-dust-usdc': {
+    address:   '0x86dbf00485871c901c5129bd525348db96c2eb2d',
+    token0:    '0x754704bc059f8c67012fed69bc8a327a5aafb603',
+    token0Dec: 6,  token0Sym: 'USDC',
+    token1:    '0xAD96C3dffCD6374294e2573A7fBBA96097CC8d7c',
+    token1Dec: 18, token1Sym: 'DUST',
   },
 }
 
@@ -1718,4 +1977,47 @@ export const PANCAKESWAP_V3_POOLS: Record<string, {
   'pancakeswap-v3-usdc-lvusd-2500': { address: '0x20ef75d4ab1e459f1f2bdbb20f5766ce3eb7dd33', token0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t0Dec: 6,  t0Sym: 'USDC',  token1: '0xfd44b35139ae53fff7d8f2a9869c503d987f00d1', t1Dec: 18, t1Sym: 'LVUSD', fee: 2500,  tickSpacing: 50,  wmonSide: 'none' },
   // WMON pools (additional fee tiers)
   'pancakeswap-v3-wmon-usdc-10000': { address: '0xb9897986847472cd08b9a0e7bcd31ea4f1322361', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',   token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 10000, tickSpacing: 200, wmonSide: 'token0' },
+  // ── New pools (additional tokens / fee tiers) ─────────────────────────────
+  // AUSD (0x0000...) < USDC (0x754..) → AUSD=t0, USDC=t1, fee=100
+  'pancake-ausd-usdc-100':      { address: '0xe84765b4e2634f3bd8a91c89e432f6b81f0647bc', token0: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', t0Dec: 6,  t0Sym: 'AUSD', token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 100,   tickSpacing: 1,   wmonSide: 'none'   },
+  // CHOG (0x3500...) < WMON (0x3bd3..) → CHOG=t0, WMON=t1, fee=10000
+  'pancake-chog-wmon-10000':    { address: '0x57390310fe6542dc2ae696ffe5a6f56b84fc4229', token0: '0x350035555e10d9afaf1566aaebfced5ba6c27777', t0Dec: 18, t0Sym: 'CHOG', token1: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t1Dec: 18, t1Sym: 'MON',   fee: 10000, tickSpacing: 200, wmonSide: 'token1' },
+  // EURW (0x1111..) < WETH (0xee8c..) → EURW=t0, WETH=t1, fee=500
+  'pancake-eurw-weth-500':      { address: '0xc1109022bf08c1610a4b33b6db5b8a964553fd82', token0: '0x1111b3ded9f1fe1801ad4ebef8e2788183a24111', t0Dec: 6,  t0Sym: 'EURW', token1: '0xee8c0e9f1bffb4eb878d8f15f368a02a35481242', t1Dec: 18, t1Sym: 'WETH',  fee: 500,   tickSpacing: 10,  wmonSide: 'none'   },
+  // IGN (0x11ed..) < WMON (0x3bd3..) → IGN=t0, WMON=t1, fee=10000
+  'pancake-ign-wmon-10000':     { address: '0x2d59fc33e51ba0bfac815ec34c1f22a80360cd50', token0: '0x11ed3b12d99d508f926c870fb44f472001842c96', t0Dec: 18, t0Sym: 'IGN',  token1: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t1Dec: 18, t1Sym: 'MON',   fee: 10000, tickSpacing: 200, wmonSide: 'token1' },
+  'pancakeswap-v3-ign-wmon-10000': { address: '0x2d59fc33e51ba0bfac815ec34c1f22a80360cd50', token0: '0x11ed3b12d99d508f926c870fb44f472001842c96', t0Dec: 18, t0Sym: 'IGN',  token1: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t1Dec: 18, t1Sym: 'MON',   fee: 10000, tickSpacing: 200, wmonSide: 'token1' },
+  // USD1 (0x1111d2..) < USDC (0x754..) → USD1=t0, USDC=t1, fee=100
+  'pancake-usd1-usdc-100':      { address: '0x8ccb070b6f871aba552972c76d3b7df8d88ffa1a', token0: '0x111111d2bf19e43c34263401e0cad979ed1cdb61', t0Dec: 6,  t0Sym: 'USD1', token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 100,   tickSpacing: 1,   wmonSide: 'none'   },
+  // USD1 (0x1111d2..) < WMON (0x3bd3..) → USD1=t0, WMON=t1, fee=2500
+  'pancake-usd1-wmon-2500':     { address: '0xe4228db368740b2de03174eb2f98d7976ff1e8fa', token0: '0x111111d2bf19e43c34263401e0cad979ed1cdb61', t0Dec: 6,  t0Sym: 'USD1', token1: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t1Dec: 18, t1Sym: 'MON',   fee: 2500,  tickSpacing: 50,  wmonSide: 'token1' },
+  // WMON (0x3bd3..) < sMON (0xa322..) → WMON=t0, sMON=t1, fee=100
+  'pancake-wmon-smon-100':      { address: '0xf75dbf48192317a27bb4690c4b333535c227f0a4', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0xa3227c5969757783154c60bf0bc1944180ed81b9', t1Dec: 18, t1Sym: 'sMON',  fee: 100,   tickSpacing: 1,   wmonSide: 'token0' },
+  // WMON (0x3bd3..) < USDT0 (0xe7cd..) → WMON=t0, USDT0=t1, fee=500
+  'pancake-wmon-usdt0-500':     { address: '0x47bae1454139da12d7541c8d5f2b97364da67568', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0xe7cd86e13ac4309349f30b3435a9d337750fc82d', t1Dec: 6,  t1Sym: 'USDT0', fee: 500,   tickSpacing: 10,  wmonSide: 'token0' },
+  // ── old-format aliases (pancake-* → same config as pancakeswap-v3-*) ────────
+  'pancake-wmon-usdc-500':   { address: '0x63e48b725540a3db24acf6682a29f877808c53f2', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 500,   tickSpacing: 10,  wmonSide: 'token0' },
+  'pancake-ausd-wmon-500':   { address: '0xd5b70d70cbe6c42bcd1aaa662a21673a83f4615b', token0: '0x00000000efe302beaa2b3e6e1b18d08d69a9012a', t0Dec: 6,  t0Sym: 'AUSD', token1: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t1Dec: 18, t1Sym: 'MON',   fee: 500,   tickSpacing: 10,  wmonSide: 'token1' },
+  'pancake-wbtc-wmon-500':   { address: '0x0944526d2727b532653e6ca6c4d980461e170a09', token0: '0x0555e30da8f98308edb960aa94c0db47230d2b9c', t0Dec: 8,  t0Sym: 'WBTC', token1: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t1Dec: 18, t1Sym: 'MON',   fee: 500,   tickSpacing: 10,  wmonSide: 'token1' },
+  'pancake-wmon-weth-500':   { address: '0xb02793fe655c1169a8699b4ee462f8ac9c75e402', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0xee8c0e9f1bffb4eb878d8f15f368a02a35481242', t1Dec: 18, t1Sym: 'WETH',  fee: 500,   tickSpacing: 10,  wmonSide: 'token0' },
+  'pancake-apr-wmon-2500':   { address: '0x8506627b3362595f36ddf4d0df1f5c8940b052d0', token0: '0x0a332311633c0625f63cfc51ee33fc49826e0a3c', t0Dec: 18, t0Sym: 'APR',  token1: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t1Dec: 18, t1Sym: 'MON',   fee: 2500,  tickSpacing: 50,  wmonSide: 'token1' },
+  'pancake-wmon-cbbtc-500':  { address: '0x614b85502b89540bb79be98d5429ec032a78a284', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0xd18b7ec58cdf4876f6afebd3ed1730e4ce10414b', t1Dec: 8,  t1Sym: 'cbBTC', fee: 500,   tickSpacing: 10,  wmonSide: 'token0' },
+  'pancake-lv-wmon-2500':    { address: '0x276664da3b25af7cd13eb4d3294d9840b60e5732', token0: '0x1001ff13bf368aa4fa85f21043648079f00e1001', t0Dec: 18, t0Sym: 'LV',   token1: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t1Dec: 18, t1Sym: 'MON',   fee: 2500,  tickSpacing: 50,  wmonSide: 'token1' },
+  'pancake-wmon-cake-2500':  { address: '0x92c57d703941e29a2ece8688ebe228807daa880d', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0xf59d81cd43f620e722e07f9cb3f6e41b031017a3', t1Dec: 18, t1Sym: 'CAKE',  fee: 2500,  tickSpacing: 50,  wmonSide: 'token0' },
+  'pancake-wmon-usdc-2500':  { address: '0x85717a98d195c9306bbf7c9523ba71f044fea0f7', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 2500,  tickSpacing: 50,  wmonSide: 'token0' },
+  'pancake-wmon-lvmon-2500': { address: '0xc59514136bdc9c0e735471cd650625ba0f5a634d', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0x91b81bfbe3a747230f0529aa28d8b2bc898e6d56', t1Dec: 18, t1Sym: 'LVMON', fee: 2500,  tickSpacing: 50,  wmonSide: 'token0' },
+  'pancake-wbtc-weth-500':   { address: '0xbad186a74e01eb666d069a45c9ba7b2acb3274ab', token0: '0x0555e30da8f98308edb960aa94c0db47230d2b9c', t0Dec: 8,  t0Sym: 'WBTC', token1: '0xee8c0e9f1bffb4eb878d8f15f368a02a35481242', t1Dec: 18, t1Sym: 'WETH',  fee: 500,   tickSpacing: 10,  wmonSide: 'none'   },
+  'pancake-apr-usdc-2500':   { address: '0x834d94a041c40def1d05c579b422da42082e8555', token0: '0x0a332311633c0625f63cfc51ee33fc49826e0a3c', t0Dec: 18, t0Sym: 'APR',  token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 2500,  tickSpacing: 50,  wmonSide: 'none'   },
+  'pancake-wbtc-usdc-500':   { address: '0x9b60e561e3ab15782fbb23ea0a766dd8d91ff8ac', token0: '0x0555e30da8f98308edb960aa94c0db47230d2b9c', t0Dec: 8,  t0Sym: 'WBTC', token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 500,   tickSpacing: 10,  wmonSide: 'none'   },
+  'pancake-cbbtc-weth-500':  { address: '0xca50b90382eed621b193fe8282f90b2f3a181d03', token0: '0xd18b7ec58cdf4876f6afebd3ed1730e4ce10414b', t0Dec: 8,  t0Sym: 'cbBTC',token1: '0xee8c0e9f1bffb4eb878d8f15f368a02a35481242', t1Dec: 18, t1Sym: 'WETH',  fee: 500,   tickSpacing: 10,  wmonSide: 'none'   },
+  'pancake-xaut0-usdt0-500': { address: '0xa5c3a55af4029724f519ac8d340be9916ac83e45', token0: '0x01bff41798a0bcf287b996046ca68b395dbc1071', t0Dec: 6,  t0Sym: 'XAUt0',token1: '0xe7cd86e13ac4309349f30b3435a9d337750fc82d', t1Dec: 6,  t1Sym: 'USDT0', fee: 500,   tickSpacing: 10,  wmonSide: 'none'   },
+  'pancake-usdc-weth-500':   { address: '0xe5bf0f773740a48cda56b8df37e0dc182f377139', token0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t0Dec: 6,  t0Sym: 'USDC', token1: '0xee8c0e9f1bffb4eb878d8f15f368a02a35481242', t1Dec: 18, t1Sym: 'WETH',  fee: 500,   tickSpacing: 10,  wmonSide: 'none'   },
+  'pancake-usdc-cbbtc-500':  { address: '0xebc92c45c652e9aae8a886fa49fb2135796d1be1', token0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t0Dec: 6,  t0Sym: 'USDC', token1: '0xd18b7ec58cdf4876f6afebd3ed1730e4ce10414b', t1Dec: 8,  t1Sym: 'cbBTC', fee: 500,   tickSpacing: 10,  wmonSide: 'none'   },
+  'pancake-usdc-cbbtc-2500': { address: '0x4aa79971caab1aeb239fd73aac9ac361c38f8148', token0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t0Dec: 6,  t0Sym: 'USDC', token1: '0xd18b7ec58cdf4876f6afebd3ed1730e4ce10414b', t1Dec: 8,  t1Sym: 'cbBTC', fee: 2500,  tickSpacing: 50,  wmonSide: 'none'   },
+  'pancake-usdc-cake-2500':  { address: '0x81e8ed9a3d356697549ec0191513584277089c15', token0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t0Dec: 6,  t0Sym: 'USDC', token1: '0xf59d81cd43f620e722e07f9cb3f6e41b031017a3', t1Dec: 18, t1Sym: 'CAKE',  fee: 2500,  tickSpacing: 50,  wmonSide: 'none'   },
+  'pancake-usdc-lvusd-2500': { address: '0x20ef75d4ab1e459f1f2bdbb20f5766ce3eb7dd33', token0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t0Dec: 6,  t0Sym: 'USDC', token1: '0xfd44b35139ae53fff7d8f2a9869c503d987f00d1', t1Dec: 18, t1Sym: 'LVUSD', fee: 2500,  tickSpacing: 50,  wmonSide: 'none'   },
+  'pancake-usdc-weth-2500':  { address: '0xbd49deae4ddfdc9a594267e36d2130fb63558d1b', token0: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t0Dec: 6,  t0Sym: 'USDC', token1: '0xee8c0e9f1bffb4eb878d8f15f368a02a35481242', t1Dec: 18, t1Sym: 'WETH',  fee: 2500,  tickSpacing: 50,  wmonSide: 'none'   },
+  'pancake-lv-lvmon-2500':   { address: '0x811540cf25394c6dc49e3e3be25315ad917c190b', token0: '0x1001ff13bf368aa4fa85f21043648079f00e1001', t0Dec: 18, t0Sym: 'LV',   token1: '0x91b81bfbe3a747230f0529aa28d8b2bc898e6d56', t1Dec: 18, t1Sym: 'LVMON', fee: 2500,  tickSpacing: 50,  wmonSide: 'none'   },
+  'pancake-eurw-usdc-100':   { address: '0x87cb5088d8bbfe3257268eb9cdd400da1d000e86', token0: '0x1111b3ded9f1fe1801ad4ebef8e2788183a24111', t0Dec: 6,  t0Sym: 'EURW', token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 100,   tickSpacing: 1,   wmonSide: 'none'   },
+  'pancake-wmon-usdc-10000': { address: '0xb9897986847472cd08b9a0e7bcd31ea4f1322361', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 10000, tickSpacing: 200, wmonSide: 'token0' },
 }
