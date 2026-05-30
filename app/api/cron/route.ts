@@ -24,6 +24,7 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  const cronStart = new Date().toISOString()
   console.log('[Cron] Starting pool refresh...')
 
   // REST-only adapters run in parallel (no RPC calls, no rate limit risk)
@@ -102,8 +103,16 @@ export async function GET(req: NextRequest) {
 
   console.log(`[Cron] Upserted ${pools.length} pools`)
 
-  // Note: stale pool deletion removed — auto-deleting production data from a cron job is risky.
-  // Pool IDs are deterministic; if a pool needs to be removed, do it manually via Supabase dashboard.
+  // Delete stale pools not refreshed in this run.
+  // Guard: only delete if we fetched enough data — prevents mass deletion when adapters fail.
+  if (pools.length >= 100) {
+    const { error: deleteError, count: deleted } = await supabaseAdmin
+      .from('pools')
+      .delete({ count: 'exact' })
+      .lt('updated_at', cronStart)
+    if (deleteError) console.warn('[Cron] Stale pool cleanup failed:', deleteError.message)
+    else console.log(`[Cron] Deleted ${deleted} stale pools`)
+  }
 
   return NextResponse.json({ ok: true, count: pools.length, pools: pools.map(p => p.id), errors })
 }
