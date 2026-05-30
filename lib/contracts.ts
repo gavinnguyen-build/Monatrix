@@ -2020,4 +2020,8 @@ export const PANCAKESWAP_V3_POOLS: Record<string, {
   'pancake-lv-lvmon-2500':   { address: '0x811540cf25394c6dc49e3e3be25315ad917c190b', token0: '0x1001ff13bf368aa4fa85f21043648079f00e1001', t0Dec: 18, t0Sym: 'LV',   token1: '0x91b81bfbe3a747230f0529aa28d8b2bc898e6d56', t1Dec: 18, t1Sym: 'LVMON', fee: 2500,  tickSpacing: 50,  wmonSide: 'none'   },
   'pancake-eurw-usdc-100':   { address: '0x87cb5088d8bbfe3257268eb9cdd400da1d000e86', token0: '0x1111b3ded9f1fe1801ad4ebef8e2788183a24111', t0Dec: 6,  t0Sym: 'EURW', token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 100,   tickSpacing: 1,   wmonSide: 'none'   },
   'pancake-wmon-usdc-10000': { address: '0xb9897986847472cd08b9a0e7bcd31ea4f1322361', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',  token1: '0x754704bc059f8c67012fed69bc8a327a5aafb603', t1Dec: 6,  t1Sym: 'USDC',  fee: 10000, tickSpacing: 200, wmonSide: 'token0' },
+  // WMON/MONIKA pool
+  'pancakeswap-v3-wmon-monika-2500': { address: '0xc7ea49eda89c72b4e626483bfdb1fd235ec48a4b', token0: '0x3bd359c1119da7da1d913d1c4d2b7c461115433a', t0Dec: 18, t0Sym: 'MON',    token1: '0x5bea301626702c4a253d92be06d36e86bb6b58b5', t1Dec: 18, t1Sym: 'MONIKA', fee: 2500, tickSpacing: 50, wmonSide: 'token0' },
+  // wnSHMON/wnUSDC pool (bridged tokens)
+  'pancakeswap-v3-wnshmon-wnusdc-500': { address: '0xfb9bf0bc46e987feef46324a3da56bcb07e7ed18', token0: '0x5e073494678fb7fa4a05bb17d45941dd9dc469c1', t0Dec: 18, t0Sym: 'wnSHMON', token1: '0x8d5c2df3eef09088fcccf3376d8ecd0dd505f642', t1Dec: 6, t1Sym: 'wnUSDC', fee: 500, tickSpacing: 10, wmonSide: 'none' },
 }

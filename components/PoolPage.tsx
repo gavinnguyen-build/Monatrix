@@ -586,6 +586,9 @@ function V3PriceRangeChart({
     .filter((_, i) => i % tickEvery === 0)
     .map(r => r.time)
 
+  // Hide chart section entirely when no data available (after loading)
+  if (!loading && displayRows.length === 0) return null
+
   return (
     <div className="mb-4">
       {/* Timeframe selector */}
@@ -614,10 +617,6 @@ function V3PriceRangeChart({
         {loading ? (
           <div className="h-full flex items-center justify-center">
             <span className="text-xs text-slate-600 animate-pulse">Loading chart…</span>
-          </div>
-        ) : displayRows.length === 0 ? (
-          <div className="h-full flex items-center justify-center">
-            <span className="text-xs text-slate-600">No chart data</span>
           </div>
         ) : (
           <ResponsiveContainer width="100%" height="100%">
