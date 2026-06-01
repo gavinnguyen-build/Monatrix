@@ -24,7 +24,6 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
-  const cronStart = new Date().toISOString()
   console.log('[Cron] Starting pool refresh...')
 
   // REST-only adapters run in parallel (no RPC calls, no rate limit risk)
@@ -103,15 +102,29 @@ export async function GET(req: NextRequest) {
 
   console.log(`[Cron] Upserted ${pools.length} pools`)
 
-  // Delete stale pools not refreshed in this run.
+  // Delete stale pools not in this run's result set.
+  // ID-based (not timestamp-based) so it's immune to race conditions with
+  // other cron instances (e.g. Vercel prod) writing at the same time.
   // Guard: only delete if we fetched enough data — prevents mass deletion when adapters fail.
-  if (pools.length >= 100) {
-    const { error: deleteError, count: deleted } = await supabaseAdmin
-      .from('pools')
-      .delete({ count: 'exact' })
-      .lt('updated_at', cronStart)
-    if (deleteError) console.warn('[Cron] Stale pool cleanup failed:', deleteError.message)
-    else console.log(`[Cron] Deleted ${deleted} stale pools`)
+  if (rows.length >= 100) {
+    const freshIds = rows.map(r => r.id)
+
+    // Fetch all current IDs from DB, then delete the ones not in freshIds
+    const { data: currentRows } = await supabaseAdmin.from('pools').select('id')
+    const staleIds = (currentRows ?? [])
+      .map(r => r.id as string)
+      .filter(id => !freshIds.includes(id))
+
+    if (staleIds.length > 0) {
+      const { error: deleteError, count: deleted } = await supabaseAdmin
+        .from('pools')
+        .delete({ count: 'exact' })
+        .in('id', staleIds)
+      if (deleteError) console.warn('[Cron] Stale pool cleanup failed:', deleteError.message)
+      else console.log(`[Cron] Deleted ${deleted} stale pools (${staleIds.join(', ')})`)
+    } else {
+      console.log('[Cron] No stale pools to delete')
+    }
   }
 
   return NextResponse.json({ ok: true, count: pools.length, pools: pools.map(p => p.id), errors })
